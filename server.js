@@ -5,7 +5,11 @@ const { join } = require('node:path');
 
 const page = readFileSync(join(__dirname, 'game.html'));
 const rooms = new Map();
-const jumps = { 3: 11, 6: 15, 10: 20, 17: 8, 22: 13, 24: 16 };
+const boards = {
+  quick: { size: 4, jumps: { 3: 9, 6: 12, 11: 4, 15: 8 } },
+  classic: { size: 5, jumps: { 3: 11, 6: 15, 10: 20, 17: 8, 22: 13, 24: 16 } },
+  long: { size: 7, jumps: { 4: 17, 9: 23, 19: 32, 28: 41, 38: 46, 15: 7, 26: 13, 35: 22, 44: 31, 48: 39 } }
+};
 const games = ['snakes', 'pairs', 'connect'];
 const expiry = 2 * 60 * 60 * 1000;
 
@@ -40,15 +44,17 @@ function move(room, player, cell) {
     throw new Error('Wait for your turn.');
   }
   if (room.game === 'snakes') {
+    const { size, jumps } = boards[room.pace];
+    const finish = size ** 2;
     const start = room.positions[player];
     const die = randomInt(1, 7);
-    const landing = Math.min(25, start + die);
+    const landing = Math.min(finish, start + die);
     const destination = jumps[landing] ?? landing;
     room.positions[player] = destination;
     const jump = destination > landing ? ' Up a ladder!' : destination < landing ? ' Down a snake!' : '';
     room.message = `${room.names[player]} rolled ${die}.${jump}`;
     room.roll = { id: randomBytes(8).toString('hex'), player, die, start, landing, destination };
-    if (destination === 25) room.winner = player;
+    if (destination === finish) room.winner = player;
   }
   if (room.game === 'connect') {
     if (!Number.isInteger(cell) || cell < 0 || cell > 6) throw new Error('Pick a column.');
@@ -98,7 +104,7 @@ function reply(res, status, value) {
 }
 
 function handle(data) {
-  const { action, code, token, game, cell, name } = data;
+  const { action, code, token, game, cell, name, pace } = data;
   const nickname = typeof name === 'string' ? name.trim().slice(0, 20) : '';
   const now = Date.now();
   for (const [key, room] of rooms) if (now - room.touched > expiry) rooms.delete(key);
@@ -110,6 +116,7 @@ function handle(data) {
     let key;
     do { key = randomBytes(5).toString('hex').toUpperCase(); } while (rooms.has(key));
     room = { code: key, game, players: [randomBytes(24).toString('hex')], names: [nickname || 'Player 1'] };
+    room.pace = Object.hasOwn(boards, pace) ? pace : 'classic';
     newBoard(room);
     rooms.set(key, room);
     player = 0;
@@ -135,7 +142,7 @@ function handle(data) {
   return {
     code: room.code, token: room.players[player], player, game: room.game,
     ready: room.players.length === 2, turn: room.turn, winner: room.winner,
-    positions: room.positions, jumps, message: room.message, grid: room.grid,
+    positions: room.positions, ...boards[room.pace], pace: room.pace, message: room.message, grid: room.grid,
     names: room.names, roll: room.roll,
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),

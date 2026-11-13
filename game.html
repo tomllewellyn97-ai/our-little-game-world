@@ -45,11 +45,14 @@
   .piece { position: absolute; z-index: 2; display: grid; place-items: center; width: 9%; aspect-ratio: 1; border: 2px solid #282344; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); transition: left .17s ease, top .17s ease; font-size: clamp(.8rem,4vw,1.5rem); }
   .piece.heart { background: #ffd0e1; }
   .piece.jump { transition-duration: .55s; }
-  #dice { display: flex; gap: .6rem; align-items: center; }
-  #face { font-size: 3.2rem; line-height: 1; color: #6240b1; }
-  #face.spinning { animation: tumble .22s ease-in-out infinite alternate; }
-  @keyframes tumble { from { transform: rotate(-23deg) translateY(-4px); } to { transform: rotate(23deg) translateY(4px); } }
-  @media (prefers-reduced-motion: reduce) { #face.spinning { animation: none; } .piece { transition: none; } }
+  #dice { display: flex; flex-wrap: wrap; gap: .85rem; align-items: center; margin: .75rem 0; }
+  .die-stage { width: 3rem; height: 3rem; perspective: 13rem; }
+  #cube { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
+  .die-side { position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: .35rem; border: 2px solid #282344; border-radius: .6rem; background: #fff; backface-visibility: hidden; box-shadow: inset 0 0 .4rem #ddd2f5; }
+  .die-side i { align-self: center; justify-self: center; width: .42rem; aspect-ratio: 1; border-radius: 50%; background: #5636a0; }
+  .snake-board.large .piece { width: 6.5%; font-size: clamp(.55rem, 3vw, 1rem); }
+  .pace { margin: .65rem 0; font: inherit; padding: .35rem; max-width: 100%; }
+  @media (prefers-reduced-motion: reduce) { .piece { transition: none; } }
 </style>
 </head>
 <body>
@@ -59,7 +62,15 @@
     <label for="nickname">Your player name</label>
     <input id="nickname" maxlength="20" placeholder="Pick a nickname" style="text-transform:none">
     <div class="tiles">
-      <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2><button data-game="snakes">Start Snakes &amp; Ladders</button></div>
+      <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2>
+        <label for="pace">Game length</label>
+        <select class="pace" id="pace">
+          <option value="quick">Quick · 16 squares</option>
+          <option value="classic" selected>Classic · 25 squares</option>
+          <option value="long">Long · 49 squares</option>
+        </select>
+        <div><button data-game="snakes">Start Snakes &amp; Ladders</button></div>
+      </div>
       <div class="tile gold"><span aria-hidden="true">🐱 🐱</span><h2>Matching Pairs</h2><button data-game="pairs">Start Matching Pairs</button></div>
       <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
       <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><p>Coming soon</p></div>
@@ -77,9 +88,12 @@
     <p id="status" role="status"></p>
     <p id="rules"></p>
     <p id="detail"></p>
-    <div id="dice" hidden><span id="face" aria-hidden="true">⚀</span><strong id="dice-result" role="status"></strong></div>
+    <div id="dice" hidden>
+      <button id="roll">Roll the dice</button>
+      <div class="die-stage" aria-hidden="true"><div id="cube"></div></div>
+      <strong id="dice-result" role="status"></strong>
+    </div>
     <div id="board"></div>
-    <button id="roll" hidden>🎲 Roll the dice</button>
     <button id="restart" hidden>Play again</button>
   </section>
   <p id="error" role="alert"></p>
@@ -88,7 +102,7 @@
   const byId = id => document.getElementById(id);
   const names = { snakes: 'Snakes & Ladders', pairs: 'Matching Pairs', connect: 'Connect 4' };
   const rules = {
-    snakes: 'Roll to move. Ladders take you up and snakes take you down. Reach 25 to win!',
+    snakes: 'Roll to move. Ladders take you up and snakes take you down.',
     pairs: 'Flip two cards. Find a pair and take another turn!',
     connect: 'Drop a piece into a column. Get four in a row to win!'
   };
@@ -99,13 +113,30 @@
   let lastRoll = null;
   let animation = null;
   let newest = null;
-  const squares = [[21,22,23,24,25],[20,19,18,17,16],[11,12,13,14,15],[10,9,8,7,6],[1,2,3,4,5]].flat();
-  const faces = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+  let size = 5;
+  let diceMotion;
+  const cube = byId('cube');
+  const angles = [[0,0],[-90,0],[0,-90],[0,90],[90,0],[0,180]];
+  const pips = [[5],[1,9],[1,5,9],[1,3,7,9],[1,3,5,7,9],[1,3,4,6,7,9]];
+  angles.forEach(([x,y], i) => {
+    const side = document.createElement('span');
+    side.className = 'die-side';
+    side.style.transform = `rotateY(${-y}deg) rotateX(${-x}deg) translateZ(1.5rem)`;
+    for (const n of pips[i]) {
+      const pip = document.createElement('i');
+      pip.style.gridArea = `${Math.ceil(n/3)} / ${(n-1)%3+1}`;
+      side.append(pip);
+    }
+    cube.append(side);
+  });
+  function rotation(x, y) { return `rotateX(${x}deg) rotateY(${y}deg)`; }
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   function point(square) {
-    const index = squares.indexOf(square);
-    return [index % 5 * 20 + 10, Math.floor(index / 5) * 20 + 10];
+    const row = Math.floor((square - 1) / size);
+    const offset = (square - 1) % size;
+    const col = row % 2 ? size - 1 - offset : offset;
+    return [(col + .5) * 100 / size, (size - row - .5) * 100 / size];
   }
   function paths(jumps) {
     const artwork = Object.entries(jumps).map(([from, to]) => {
@@ -127,26 +158,29 @@
     placeAt(piece, x, y, player);
   }
   function placeAt(piece, x, y, player) {
-    piece.style.left = (x + (player ? 2.5 : -2.5)) + '%';
-    piece.style.top = (y + 4) + '%';
+    piece.style.left = (x + (player ? 12.5 : -12.5) / size) + '%';
+    piece.style.top = (y + 20 / size) + '%';
   }
   async function animateRoll(roll, name) {
     const run = {};
     animation = run;
-    const face = byId('face');
     byId('roll').disabled = true;
     say('status', `${name} is rolling…`);
     say('dice-result', 'Rolling…');
-    face.classList.add('spinning');
+    const [x,y] = angles[roll.die - 1];
+    const landed = rotation(x,y);
     if (!reducedMotion.matches) {
-      for (let i = 0; i < 8; i++) {
-        say('face', faces[(roll.die + i) % 6]);
-        await pause(80);
-        if (animation !== run) return;
-      }
+      diceMotion = cube.animate([
+        { transform: cube.style.transform || rotation(0,0) },
+        { transform: 'translateY(-.7rem) ' + rotation(285,205), offset: .48 },
+        { transform: 'translateY(.15rem) ' + rotation(650,540), offset: .82 },
+        { transform: rotation(720+x,720+y) }
+      ], { duration: 820, easing: 'ease-out', fill: 'forwards' });
+      await diceMotion.finished.catch(() => {});
+      if (animation !== run) return;
     }
-    face.classList.remove('spinning');
-    say('face', faces[roll.die - 1]);
+    cube.style.transform = landed;
+    diceMotion?.cancel();
     say('dice-result', `${name} rolled ${roll.die}`);
     const piece = byId('piece-' + roll.player);
     for (let square = roll.start + 1; square <= roll.landing; square++) {
@@ -182,6 +216,7 @@
     newest = state;
     if (animation) return;
     const { game, code, player, turn, winner, ready, paused } = state;
+    size = state.size || 5;
     const playerNames = state.names || ['Player 1', 'Player 2'];
     const roll = state.roll;
     const animate = game === 'snakes' && roll && roll.id !== lastRoll;
@@ -192,7 +227,8 @@
     byId('room-info').hidden = ready;
     say('code', code);
     say('game-title', names[game]);
-    say('rules', rules[game]);
+    const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long' };
+    say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${rules.snakes} Reach ${size ** 2} to win!` : rules[game]);
     const you = `You are ${playerNames[player]} ${icons[player]}`;
     const turnText = active ? 'Your turn!' : `${playerNames[turn]}’s turn`;
     const play = paused ? 'Try to remember those cards!' : turnText;
@@ -201,18 +237,18 @@
     say('detail', game === 'snakes' ? (animate ? '' : state.message) : game === 'pairs' ?
       `★ ${playerNames[0]}: ${state.scores[0]} · ♥ ${playerNames[1] || 'Player 2'}: ${state.scores[1]}` : '');
     byId('dice').hidden = game !== 'snakes';
-    if (!roll) { say('face', faces[0]); say('dice-result', 'Ready to roll'); }
-    byId('roll').hidden = game !== 'snakes';
+    if (!roll) { cube.style.transform = rotation(0,0); say('dice-result', 'Ready to roll'); }
     byId('roll').disabled = !active;
     byId('restart').hidden = player !== 0 || winner === null;
-    const key = JSON.stringify([game, active, state.grid, state.cards, state.positions, state.matched, animate ? roll.id : null]);
+    const key = JSON.stringify([game, size, active, state.grid, state.cards, state.positions, state.matched, animate ? roll.id : null]);
     if (key === lastBoard) return;
     lastBoard = key;
     const board = byId('board');
     const focusedCell = document.activeElement?.dataset.cell;
     board.replaceChildren();
     board.classList.toggle('snake-board', game === 'snakes');
-    const columns = game === 'snakes' ? 5 : game === 'pairs' ? 4 : 7;
+    board.classList.toggle('large', size === 7);
+    const columns = game === 'snakes' ? size : game === 'pairs' ? 4 : 7;
     board.style.gridTemplateColumns = `repeat(${columns}, minmax(0,1fr))`;
     function button(label, css, cell, disabled) {
       const node = document.createElement('button');
@@ -225,7 +261,10 @@
       return node;
     }
     if (game === 'snakes') {
-      for (const square of squares) {
+      for (let i = 0; i < size ** 2; i++) {
+        const row = size - 1 - Math.floor(i / size);
+        const col = i % size;
+        const square = row * size + (row % 2 ? size - col : col + 1);
         const node = document.createElement('div');
         node.className = 'square';
         const jump = state.jumps[square];
@@ -298,7 +337,7 @@
     session = null;
     animation = null;
     lastRoll = null;
-    byId('face').classList.remove('spinning');
+    diceMotion?.cancel();
     lastBoard = '';
     sessionStorage.removeItem('gameRoom');
     byId('room').hidden = true;
@@ -307,7 +346,7 @@
     document.querySelector('[data-game]').focus();
   }
   document.querySelectorAll('[data-game]').forEach(node => {
-    node.onclick = () => request('create', { game: node.dataset.game });
+    node.onclick = () => request('create', { game: node.dataset.game, pace: byId('pace').value });
   });
   byId('join').onsubmit = event => {
     event.preventDefault();
