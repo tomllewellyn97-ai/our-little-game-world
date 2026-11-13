@@ -66,6 +66,10 @@
   .pace-picker::after { content: ""; position: absolute; right: .9rem; top: 45%; width: .5rem; height: .5rem; border: solid #315740; border-width: 0 2px 2px 0; transform: translateY(-50%) rotate(45deg); pointer-events: none; }
   #game-menu { margin-top: 1rem; }
   #game-menu .tiles { margin: 1rem 0; }
+  #canvas { display: block; width: 100%; height: auto; background: white; border: 2px solid #282344; border-radius: .8rem; touch-action: none; cursor: crosshair; }
+  #drawing-tools { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+  #drawing-tools .ink { width: 44px; background: var(--ink); }
+  #drawing-tools [aria-pressed="true"] { outline: 3px solid #6240b1; outline-offset: 2px; }
   .piece-picker { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0 1rem; }
   .piece-picker button { min-width: 44px; font-size: 1.2rem; }
   .piece-picker button[aria-pressed="true"] { background: #e5d9ff; outline: 2px solid #6240b1; }
@@ -121,7 +125,7 @@
         <button data-game="pairs">Set up Matching Pairs</button>
       </div>
       <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
-      <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><p>Coming soon</p></div>
+      <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><button data-game="drawing">Start Drawing Together</button></div>
     </div>
     </div>
     <form id="setup" hidden>
@@ -149,6 +153,12 @@
     </form>
     <div id="current-game" hidden>
     <h2 id="game-title" tabindex="-1"></h2>
+    <div id="drawing" hidden>
+      <p>Draw on the same picture at the same time.</p>
+      <div id="drawing-tools" role="group" aria-label="Drawing tools"></div>
+      <canvas id="canvas" width="900" height="600" aria-label="Shared drawing canvas"></canvas>
+    </div>
+    <div id="turn-game">
     <p id="status" role="status" aria-atomic="true"></p>
     <p id="rules"></p>
     <p id="detail"></p>
@@ -163,12 +173,104 @@
     <div id="board"></div>
     <button id="restart" hidden>Play again</button>
     </div>
+    </div>
   </section>
   <p id="error" role="alert"></p>
 </main>
 <script>
   const byId = id => document.getElementById(id);
-  const names = { snakes: 'Snakes & Ladders', pairs: 'Matching Pairs', connect: 'Connect 4' };
+  const names = { snakes: 'Snakes & Ladders', pairs: 'Matching Pairs', connect: 'Connect 4', drawing: 'Drawing Together' };
+  const canvas = byId('canvas');
+  const paint = canvas.getContext('2d');
+  const ink = {Black:'#282344', Pink:'#d52e54', Orange:'#e36716', Yellow:'#f2bf18', Green:'#23865e', Blue:'#2664c4', Purple:'#833fc1', Eraser:'#ffffff'};
+  let colour = ink.Black;
+  let strokes = [];
+  let drawingVersion;
+  let draft = null;
+  let pointer = null;
+  const drawingQueue = [];
+  for (const [label, value] of Object.entries(ink)) {
+    const button = document.createElement('button');
+    button.textContent = label === 'Eraser' ? label : '';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.setAttribute('aria-pressed', String(value === colour));
+    if (label !== 'Eraser') button.className = 'ink';
+    button.style.setProperty('--ink', value);
+    button.onclick = () => {
+      byId('drawing-tools').querySelector('[aria-pressed="true"]')?.setAttribute('aria-pressed', 'false');
+      colour = value;
+      button.setAttribute('aria-pressed', 'true');
+    };
+    byId('drawing-tools').append(button);
+  }
+  const undo = document.createElement('button');
+  undo.textContent = 'Undo my stroke';
+  undo.onclick = () => queueDrawing('undo');
+  byId('drawing-tools').append(undo);
+  const fresh = document.createElement('button');
+  fresh.textContent = 'New picture';
+  fresh.onclick = () => {
+    if (confirm('Start a blank picture for everyone?')) request('switch', { game: 'drawing' });
+  };
+  byId('drawing-tools').append(fresh);
+  function paintStroke(stroke) {
+    const [[x, y], ...points] = stroke.points;
+    const width = stroke.colour === ink.Eraser ? 26 : 9;
+    paint.strokeStyle = paint.fillStyle = stroke.colour;
+    paint.lineWidth = width;
+    paint.lineCap = paint.lineJoin = 'round';
+    paint.beginPath();
+    if (!points.length) {
+      paint.arc(x * .9, y * .6, width / 2, 0, Math.PI * 2);
+      paint.fill();
+      return;
+    }
+    paint.moveTo(x * .9, y * .6);
+    for (const [a,b] of points) paint.lineTo(a * .9, b * .6);
+    paint.stroke();
+  }
+  function redrawPicture() {
+    paint.clearRect(0, 0, canvas.width, canvas.height);
+    strokes.forEach(paintStroke);
+    drawingQueue.filter(item => item.stroke).forEach(item => paintStroke(item.stroke));
+    if (draft) paintStroke(draft);
+  }
+  function canvasPoint(event) {
+    const rect = canvas.getBoundingClientRect();
+    const clamp = value => Math.max(0, Math.min(1000, Math.round(value * 1000)));
+    return [clamp((event.clientX - rect.left) / rect.width), clamp((event.clientY - rect.top) / rect.height)];
+  }
+  function queueDrawing(action, stroke) {
+    drawingQueue.push({ action, stroke });
+    if (!busy) sendDrawing();
+  }
+  function sendDrawing() {
+    const item = drawingQueue[0];
+    if (item && session && newest?.game === 'drawing') request(item.action, item.stroke);
+  }
+  canvas.onpointerdown = event => {
+    if (pointer !== null || event.button !== 0) return;
+    pointer = event.pointerId;
+    canvas.setPointerCapture(pointer);
+    draft = { colour, points: [canvasPoint(event)] };
+    redrawPicture();
+  };
+  canvas.onpointermove = event => {
+    if (pointer !== event.pointerId || !draft) return;
+    if (draft.points.length >= 500) draft.points = draft.points.filter((_, index) => index % 2 === 0);
+    draft.points.push(canvasPoint(event));
+    redrawPicture();
+  };
+  function endStroke(event) {
+    if (pointer !== event.pointerId || !draft) return;
+    const stroke = draft;
+    draft = null;
+    pointer = null;
+    queueDrawing('draw', stroke);
+    redrawPicture();
+  }
+  canvas.onpointerup = canvas.onpointercancel = endStroke;
   const rules = {
     snakes: 'Roll to move. Ladders take you up and snakes take you down.',
     pairs: 'Flip two cards. Find a pair and take another turn!',
@@ -324,6 +426,10 @@
       diceMotion?.cancel();
       lastBoard = '';
       lastRoll = null;
+      strokes = [];
+      drawingVersion = undefined;
+      drawingQueue.length = 0;
+      draft = pointer = null;
     }
     if (animation) return;
     const { game, code, player, turn, winner, ready, paused } = state;
@@ -351,6 +457,17 @@
     showSetup();
     if (!game) return;
     say('game-title', names[game]);
+    byId('drawing').hidden = game !== 'drawing';
+    byId('turn-game').hidden = game === 'drawing';
+    if (game === 'drawing') {
+      fresh.hidden = player !== 0;
+      if (state.strokes) {
+        strokes = state.strokes;
+        drawingVersion = state.drawingVersion;
+        redrawPicture();
+      }
+      return;
+    }
     const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long' };
     say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${rules.snakes} Reach ${size ** 2} to win!` : rules[game]);
     const turnText = active ? `Your turn, ${playerNames[player]}!` : `${playerNames[turn]}’s turn`;
@@ -471,11 +588,13 @@
     try {
       const response = await fetch('/room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...session, action, round, name: byId('nickname').value, ...extra }), signal: AbortSignal.timeout(15000)
+        body: JSON.stringify({ ...session, action, round, drawingVersion, name: byId('nickname').value, ...extra }), signal: AbortSignal.timeout(15000)
       });
       const state = await response.json();
       if (previous !== session) return;
+      if (action === 'draw' || action === 'undo') drawingQueue.shift();
       if (!response.ok) {
+        if (action === 'draw' || action === 'undo') redrawPicture();
         if (action === 'state') leave();
         say('error', state.error);
         return;
@@ -491,6 +610,10 @@
       if (action === 'switch') byId('game-title').focus();
       if (action !== 'state' || byId('error').textContent.startsWith('Connection')) say('error', '');
     } catch {
+      if (action === 'draw' || action === 'undo') {
+        drawingQueue.shift();
+        redrawPicture();
+      }
       if (previous === session) say('error', 'Connection interrupted. Check your internet and try again.');
     } finally {
       busy = false;
@@ -501,6 +624,7 @@
         pendingMove = false;
         if (session && session === next.session) request(next.action, next.extra);
       }
+      if (!busy && drawingQueue.length) sendDrawing();
     }
   }
   function leave() {
@@ -509,6 +633,7 @@
     lastRoll = null;
     currentRound = null;
     newest = null;
+    drawingQueue.length = 0;
     closeSetup();
     diceMotion?.cancel();
     lastBoard = '';
@@ -523,7 +648,7 @@
   }
   document.querySelectorAll('[data-game]').forEach(node => {
     const game = node.dataset.game;
-    node.onclick = () => game === 'connect' ? request('switch', { game }) : openSetup(game);
+    node.onclick = () => game === 'connect' || game === 'drawing' ? request('switch', { game }) : openSetup(game);
   });
   function openSetup(game) {
     byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';

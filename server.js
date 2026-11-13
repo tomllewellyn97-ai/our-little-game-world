@@ -10,7 +10,8 @@ const boards = {
   classic: { size: 5, jumps: { 3: 11, 6: 15, 10: 20, 17: 8, 22: 13, 24: 16 } },
   long: { size: 7, jumps: { 4: 17, 9: 23, 19: 32, 28: 41, 38: 46, 15: 7, 26: 13, 35: 22, 44: 31, 48: 39 } }
 };
-const games = ['snakes', 'pairs', 'connect'];
+const games = ['snakes', 'pairs', 'connect', 'drawing'];
+const inkColours = ['#282344', '#d52e54', '#e36716', '#f2bf18', '#23865e', '#2664c4', '#833fc1', '#ffffff'];
 const themes = ['classic', 'jungle', 'space', 'ocean'];
 const pairCounts = { quick: 4, classic: 6, long: 10 };
 const pieces = ['★', '♥', '◆', '🐱', '🐶', '🦊', '🐸', '🦄', '🚀', '🐢', '🐙', '🦋'];
@@ -21,6 +22,8 @@ function availablePiece(room, choice) {
 const expiry = 2 * 60 * 60 * 1000;
 
 function newBoard(room) {
+  room.strokes = [];
+  room.drawingVersion = 0;
   room.turn = 0;
   room.winner = null;
   room.message = '';
@@ -51,7 +54,7 @@ function settle(room) {
 
 function move(room, player, cell) {
   const seats = room.game === 'connect' ? 2 : room.capacity;
-  if (!room.game || room.players.length < seats || room.turn !== player || room.winner !== null || room.hideAt) {
+  if (!room.game || room.game === 'drawing' || room.players.length < seats || room.turn !== player || room.winner !== null || room.hideAt) {
     throw new Error('Wait for your turn.');
   }
   if (room.game === 'snakes') {
@@ -157,12 +160,35 @@ function handle(data) {
       room.players.splice(player, 1);
       room.names.splice(player, 1);
       room.pieces.splice(player, 1);
-      if (room.game !== 'connect' || player === 1) {
+      if (room.game === 'drawing') {
+        for (const stroke of room.strokes) {
+          if (stroke.owner === player) stroke.owner = -1;
+          else if (stroke.owner > player) stroke.owner--;
+        }
+        room.drawingVersion++;
+      } else if (room.game !== 'connect' || player === 1) {
         room.game = null;
         newBoard(room);
       }
     }
     return {};
+  }
+  if (action === 'draw' || action === 'undo') {
+    if (room.game !== 'drawing' || round !== room.round) throw new Error('The drawing has changed.');
+    if (action === 'draw') {
+      const { colour, points } = data;
+      if (!inkColours.includes(colour) || !Array.isArray(points) || !points.length || points.length > 500 ||
+          !points.every(point => Array.isArray(point) && point.length === 2 &&
+            point.every(value => Number.isInteger(value) && value >= 0 && value <= 1000))) {
+        throw new Error('That stroke could not be added.');
+      }
+      if (room.strokes.length >= 300) throw new Error('This picture is full. Start a new picture to keep drawing.');
+      room.strokes.push({ owner: player, colour, points });
+    } else {
+      const last = room.strokes.findLastIndex(stroke => stroke.owner === player);
+      if (last >= 0) room.strokes.splice(last, 1);
+    }
+    room.drawingVersion++;
   }
   if (action === 'piece') {
     if (!pieces.includes(piece) || room.pieces.some((value, i) => i !== player && value === piece)) {
@@ -195,7 +221,10 @@ function handle(data) {
     names: room.names, roll: room.roll, theme: room.theme, pieces: room.pieces, choices: pieces,
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
-    matched: room.matched, cardOwners: room.cardOwners
+    matched: room.matched, cardOwners: room.cardOwners,
+    drawingVersion: room.drawingVersion,
+    strokes: room.game === 'drawing' && (action !== 'state' || round !== room.round ||
+      data.drawingVersion !== room.drawingVersion) ? room.strokes : undefined
   };
 }
 
@@ -210,10 +239,10 @@ const server = http.createServer(async (req, res) => {
   try {
     for await (const chunk of req) {
       body += chunk;
-      if (body.length > 2048) return reply(res, 413, { error: 'Request is too large.' });
+      if (body.length > 8192) return reply(res, 413, { error: 'Request is too large.' });
     }
     const data = JSON.parse(body);
-    if (!['create', 'join', 'state', 'move', 'restart', 'switch', 'lobby', 'exit', 'piece'].includes(data?.action)) {
+    if (!['create', 'join', 'state', 'move', 'restart', 'switch', 'lobby', 'exit', 'piece', 'draw', 'undo'].includes(data?.action)) {
       throw new Error('Choose a room action.');
     }
     reply(res, 200, handle(data));
