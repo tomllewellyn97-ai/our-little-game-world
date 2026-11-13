@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Our Little Game World</title>
+<style>
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: #fff8eb; color: #282344; font: 1rem/1.5 "Trebuchet MS", system-ui, sans-serif; }
+  main { width: min(100% - 2rem, 48rem); margin: auto; padding: 2rem 0; }
+  header { text-align: center; margin-bottom: 1.5rem; }
+  header span { font-size: 3rem; }
+  h1 { font-size: clamp(2.1rem, 7vw, 4rem); line-height: 1.05; margin: .25rem 0; }
+  h2, p { margin: .65rem 0; }
+  button, input { font: inherit; }
+  button { color: inherit; font-weight: bold; background: #fff; border: 2px solid; border-radius: .8rem; min-height: 44px; padding: .4rem .75rem; cursor: pointer; }
+  button:disabled { cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 3px solid #6240b1; outline-offset: 3px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,15rem),1fr)); gap: 1rem; }
+  .tile { text-align: center; padding: 1rem; border: 2px solid; border-radius: 1.5rem; box-shadow: 0 4px #282344; }
+  .tile span { font-size: 2.5rem; }
+  .green { background: #c5edb5; } .gold { background: #ffe190; }
+  .blue { background: #cde2ff; } .pink { background: #ffd0e1; }
+  section, form { margin-top: 1.25rem; }
+  form, #room { background: #fffdf7; border: 2px solid #282344; border-radius: 1.25rem; padding: clamp(.75rem, 3vw, 1.5rem); }
+  label { display: block; font-weight: bold; }
+  input { width: min(100%, 14rem); padding: .55rem; border: 2px solid; border-radius: .75rem; margin: .35rem 0; text-transform: uppercase; }
+  #code { font: bold clamp(1.15rem,5vw,1.6rem) monospace; letter-spacing: .08em; }
+  #error { color: #9b2535; font-weight: bold; }
+  #board { display: grid; gap: .25rem; margin: 1rem auto; max-width: 28rem; }
+  .square { position: relative; min-width: 0; aspect-ratio: 1; border-radius: .45rem; background: #f2e4ff; padding: .15rem; font-size: clamp(.7rem,2.6vw,1rem); }
+  .square:nth-child(even) { background: #e1f4d3; }
+  .tokens { position: absolute; inset: auto 0 0; text-align: center; font-size: clamp(.8rem,3.5vw,1.45rem); }
+  .drop { min-width: 0; padding: 0; }
+  .disc { aspect-ratio: 1; border-radius: 50%; background: #e2edff; border: 2px solid #3258a5; display: grid; place-items: center; }
+  .disc.player0 { background: #ff9898; } .disc.player1 { background: #ffd65c; }
+  .card { aspect-ratio: 1; font-size: clamp(1.3rem,5vw,2.6rem); background: #ffe190; padding: 0; }
+  .card:disabled { color: inherit; }
+  .card.matched { background: #c5edb5; }
+</style>
+</head>
+<body>
+<main>
+  <header><span aria-hidden="true">🌈</span><h1>Our Little Game World</h1><p>Pick a game and invite someone to play.</p></header>
+  <div id="lobby">
+    <div class="tiles">
+      <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2><button data-game="snakes">Start Snakes &amp; Ladders</button></div>
+      <div class="tile gold"><span aria-hidden="true">🐱 🐱</span><h2>Matching Pairs</h2><button data-game="pairs">Start Matching Pairs</button></div>
+      <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
+      <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><p>Coming soon</p></div>
+    </div>
+    <form id="join">
+      <label for="invite">Have a room code?</label>
+      <input id="invite" required maxlength="10" minlength="10" pattern="[a-fA-F0-9]{10}" autocomplete="off" spellcheck="false">
+      <button>Join room</button>
+    </form>
+  </div>
+  <section id="room" hidden aria-labelledby="game-title">
+    <button id="leave">Back to games</button>
+    <h2 id="game-title" tabindex="-1"></h2>
+    <p id="room-info">Room code <strong id="code"></strong></p>
+    <p id="status" role="status"></p>
+    <p id="rules"></p>
+    <p id="detail"></p>
+    <div id="board"></div>
+    <button id="roll" hidden>🎲 Roll the dice</button>
+    <button id="restart" hidden>Play again</button>
+  </section>
+  <p id="error" role="alert"></p>
+</main>
+<script>
+  const byId = id => document.getElementById(id);
+  const names = { snakes: 'Snakes & Ladders', pairs: 'Matching Pairs', connect: 'Connect 4' };
+  const rules = {
+    snakes: 'Roll to move. Ladders take you up and snakes take you down. Reach 25 to win!',
+    pairs: 'Flip two cards. Find a pair and take another turn!',
+    connect: 'Drop a piece into a column. Get four in a row to win!'
+  };
+  const icons = ['★', '♥'];
+  let session = null;
+  let busy = false;
+  let lastBoard = '';
+  function say(id, text) {
+    const node = byId(id);
+    if (node.textContent !== text) node.textContent = text;
+  }
+  function render(state) {
+    const { game, code, player, turn, winner, ready, paused } = state;
+    const active = ready && player === turn && winner === null && !paused;
+    byId('lobby').hidden = true;
+    byId('room').hidden = false;
+    byId('room-info').hidden = ready;
+    say('code', code);
+    say('game-title', names[game]);
+    say('rules', rules[game]);
+    const you = `You are ${icons[player]}`;
+    const turnText = active ? 'Your turn!' : 'Other player’s turn';
+    const play = paused ? 'Try to remember those cards!' : turnText;
+    const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : 'The other player wins!';
+    say('status', `${you}. ${!ready ? 'Share the room code with your other player.' : winner === null ? play : end}`);
+    say('detail', game === 'snakes' ? state.message : game === 'pairs' ?
+      `★ ${state.scores[0]} pairs · ♥ ${state.scores[1]} pairs` : '');
+    byId('roll').hidden = game !== 'snakes';
+    byId('roll').disabled = !active;
+    byId('restart').hidden = player !== 0 || winner === null;
+    const key = JSON.stringify([game, active, state.grid, state.cards, state.positions, state.matched]);
+    if (key === lastBoard) return;
+    lastBoard = key;
+    const board = byId('board');
+    const focusedCell = document.activeElement?.dataset.cell;
+    board.replaceChildren();
+    const columns = game === 'snakes' ? 5 : game === 'pairs' ? 4 : 7;
+    board.style.gridTemplateColumns = `repeat(${columns}, minmax(0,1fr))`;
+    function button(label, css, cell, disabled) {
+      const node = document.createElement('button');
+      node.className = css;
+      node.textContent = label;
+      node.dataset.cell = cell;
+      node.disabled = disabled;
+      node.onclick = () => request('move', { cell });
+      board.append(node);
+      return node;
+    }
+    if (game === 'snakes') {
+      const rows = [[21,22,23,24,25],[20,19,18,17,16],[11,12,13,14,15],[10,9,8,7,6],[1,2,3,4,5]];
+      for (const square of rows.flat()) {
+        const node = document.createElement('div');
+        node.className = 'square';
+        const jump = state.jumps[square];
+        node.textContent = jump ? `${square} ${jump > square ? '🪜' : '🐍'} ${jump}` : square;
+        const tokens = document.createElement('strong');
+        tokens.className = 'tokens';
+        tokens.textContent = icons.filter((_, i) => state.positions[i] === square).join('');
+        node.append(tokens);
+        board.append(node);
+      }
+    } else if (game === 'pairs') {
+      state.cards.forEach((face, i) => {
+        const matched = state.matched.includes(i);
+        const node = button(face || '?', matched ? 'card matched' : 'card', i, !active || Boolean(face));
+        node.setAttribute('aria-label', face ? `Card ${i + 1}: ${face}` : `Flip card ${i + 1}`);
+      });
+    } else {
+      for (let col = 0; col < 7; col++) {
+        const node = button('↓', 'drop', col, !active || state.grid[col] !== null);
+        node.setAttribute('aria-label', `Drop in column ${col + 1}`);
+      }
+      state.grid.forEach((owner, i) => {
+        const node = document.createElement('span');
+        node.className = owner === null ? 'disc' : `disc player${owner}`;
+        node.textContent = icons[owner] || '';
+        node.setAttribute('aria-label', `Row ${Math.floor(i / 7) + 1}, column ${i % 7 + 1}: ${icons[owner] || 'empty'}`);
+        board.append(node);
+      });
+    }
+    if (focusedCell !== undefined) board.querySelector(`[data-cell="${focusedCell}"]:enabled`)?.focus();
+  }
+  async function request(action, extra = {}) {
+    if (busy) return;
+    busy = true;
+    const previous = session;
+    try {
+      const response = await fetch('/room', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...session, action, ...extra }), signal: AbortSignal.timeout(15000)
+      });
+      const state = await response.json();
+      if (previous !== session) return;
+      if (!response.ok) {
+        if (action === 'state') leave();
+        say('error', state.error);
+        return;
+      }
+      if (!session) {
+        session = { code: state.code, token: state.token };
+        sessionStorage.setItem('gameRoom', JSON.stringify(session));
+      }
+      render(state);
+      if (action === 'create' || action === 'join') byId('game-title').focus();
+      if (action !== 'state' || byId('error').textContent.startsWith('Connection')) say('error', '');
+    } catch {
+      if (previous === session) say('error', 'Connection interrupted. Check your internet and try again.');
+    } finally {
+      busy = false;
+    }
+  }
+  function leave() {
+    session = null;
+    lastBoard = '';
+    sessionStorage.removeItem('gameRoom');
+    byId('room').hidden = true;
+    byId('lobby').hidden = false;
+    say('error', '');
+    document.querySelector('[data-game]').focus();
+  }
+  document.querySelectorAll('[data-game]').forEach(node => {
+    node.onclick = () => request('create', { game: node.dataset.game });
+  });
+  byId('join').onsubmit = event => {
+    event.preventDefault();
+    request('join', { code: byId('invite').value.trim() });
+  };
+  byId('leave').onclick = leave;
+  byId('roll').onclick = () => request('move');
+  byId('restart').onclick = () => request('restart');
+  session = JSON.parse(sessionStorage.getItem('gameRoom') || 'null');
+  if (session) request('state');
+  setInterval(() => { if (session) request('state'); }, 700);
+</script>
+</body>
+</html>
