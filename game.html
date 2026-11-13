@@ -56,16 +56,39 @@
   .pace:hover { background: white; }
   .pace:focus-visible { outline: 3px solid #6240b1; outline-offset: 4px; }
   .pace-picker::after { content: ""; position: absolute; right: .9rem; top: 45%; width: .5rem; height: .5rem; border: solid #315740; border-width: 0 2px 2px 0; transform: translateY(-50%) rotate(45deg); pointer-events: none; }
+  #game-menu { margin-top: 1rem; }
+  #game-menu .tiles { margin: 1rem 0; }
+  .piece.diamond { background: #ffe190; }
+  .piece.three { width: 5%; min-width: 0; font-size: clamp(.55rem, 2.5vw, 1rem); }
   @media (forced-colors: active) { .pace { appearance: auto; } .pace-picker::after { display: none; } }
   @media (prefers-reduced-motion: reduce) { .piece { transition: none; } }
 </style>
 </head>
 <body>
 <main>
-  <header><span aria-hidden="true">🌈</span><h1>Our Little Game World</h1><p>Pick a game and invite someone to play.</p></header>
+  <header><span aria-hidden="true">🌈</span><h1>Our Little Game World</h1><p>Join your family once and play together.</p></header>
   <div id="lobby">
     <label for="nickname">Your player name</label>
     <input id="nickname" maxlength="20" placeholder="Pick a nickname" style="text-transform:none">
+    <form id="create">
+      <label for="capacity">Players in your lobby</label>
+      <select class="pace" id="capacity"><option value="2">2 players</option><option value="3">3 players</option></select>
+      <button>Create lobby</button>
+    </form>
+    <form id="join">
+      <label for="invite">Have a lobby code?</label>
+      <input id="invite" required maxlength="10" minlength="10" pattern="[a-fA-F0-9]{10}" autocomplete="off" spellcheck="false">
+      <button>Join lobby</button>
+    </form>
+  </div>
+  <section id="room" hidden aria-labelledby="lobby-title">
+    <button id="leave">Leave lobby</button>
+    <h2 id="lobby-title" tabindex="-1">Game lobby</h2>
+    <p>Lobby code <strong id="code"></strong></p>
+    <p id="players" role="status"></p>
+    <p id="lobby-status" role="status"></p>
+    <button id="choose" hidden aria-expanded="false" aria-controls="game-menu">Change game</button>
+    <div id="game-menu" hidden>
     <div class="tiles">
       <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2>
         <label for="pace">Game length</label>
@@ -80,16 +103,9 @@
       <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
       <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><p>Coming soon</p></div>
     </div>
-    <form id="join">
-      <label for="invite">Have a room code?</label>
-      <input id="invite" required maxlength="10" minlength="10" pattern="[a-fA-F0-9]{10}" autocomplete="off" spellcheck="false">
-      <button>Join room</button>
-    </form>
-  </div>
-  <section id="room" hidden aria-labelledby="game-title">
-    <button id="leave">Back to games</button>
+    </div>
+    <div id="current-game" hidden>
     <h2 id="game-title" tabindex="-1"></h2>
-    <p id="room-info">Room code <strong id="code"></strong></p>
     <p id="status" role="status"></p>
     <p id="rules"></p>
     <p id="detail"></p>
@@ -100,6 +116,7 @@
     </div>
     <div id="board"></div>
     <button id="restart" hidden>Play again</button>
+    </div>
   </section>
   <p id="error" role="alert"></p>
 </main>
@@ -111,7 +128,7 @@
     pairs: 'Flip two cards. Find a pair and take another turn!',
     connect: 'Drop a piece into a column. Get four in a row to win!'
   };
-  const icons = ['★', '♥'];
+  const icons = ['★', '♥', '◆'];
   let session = null;
   let busy = false;
   let pendingMove = false;
@@ -120,6 +137,9 @@
   let lastRoll = null;
   let animation = null;
   let newest = null;
+  let currentRound = null;
+  let menuOpen = false;
+  let playerCount = 2;
   let size = 5;
   let diceMotion;
   const cube = byId('cube');
@@ -165,7 +185,8 @@
     placeAt(piece, x, y, player);
   }
   function placeAt(piece, x, y, player) {
-    piece.style.left = (x + (player ? 12.5 : -12.5) / size) + '%';
+    const offsets = playerCount === 3 ? [-25, 0, 25] : [-12.5, 12.5];
+    piece.style.left = (x + offsets[player] / size) + '%';
     piece.style.top = (y + 20 / size) + '%';
   }
   async function animateRoll(roll, name) {
@@ -221,9 +242,17 @@
   }
   function render(state) {
     newest = state;
+    if (state.round !== currentRound) {
+      currentRound = state.round;
+      animation = null;
+      diceMotion?.cancel();
+      lastBoard = '';
+      lastRoll = null;
+    }
     if (animation) return;
     const { game, code, player, turn, winner, ready, paused } = state;
     size = state.size || 5;
+    playerCount = state.capacity;
     const playerNames = state.names || ['Player 1', 'Player 2'];
     const roll = state.roll;
     const animate = game === 'snakes' && roll && roll.id !== lastRoll;
@@ -231,8 +260,16 @@
     const active = ready && player === turn && winner === null && !paused;
     byId('lobby').hidden = true;
     byId('room').hidden = false;
-    byId('room-info').hidden = ready;
     say('code', code);
+    say('players', `${state.names.length}/${state.capacity} joined · ${state.names.map((name, i) => `${icons[i]} ${name}`).join(' · ')}`);
+    const watching = Boolean(game && game !== 'snakes' && player === 2);
+    say('lobby-status', !game ? (player === 0 ? 'Pick a game to play.' : 'Waiting for the host to pick a game.') :
+      watching ? 'You’re watching this two-player game. Everyone can play Snakes & Ladders.' : '');
+    byId('choose').hidden = player !== 0 || !game;
+    byId('choose').setAttribute('aria-expanded', String(menuOpen));
+    byId('game-menu').hidden = player !== 0 || Boolean(game && !menuOpen);
+    byId('current-game').hidden = !game;
+    if (!game) return;
     say('game-title', names[game]);
     const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long' };
     say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${rules.snakes} Reach ${size ** 2} to win!` : rules[game]);
@@ -240,7 +277,7 @@
     const turnText = active ? 'Your turn!' : `${playerNames[turn]}’s turn`;
     const play = paused ? 'Try to remember those cards!' : turnText;
     const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : `${playerNames[winner]} wins!`;
-    say('status', `${you}. ${!ready ? 'Share the room code with your other player.' : winner === null ? play : end}`);
+    say('status', `${you}. ${!ready ? 'Waiting for more players. Share the lobby code to invite them.' : winner === null ? play : end}`);
     say('detail', game === 'snakes' ? (animate ? '' : state.message) : game === 'pairs' ?
       `★ ${playerNames[0]}: ${state.scores[0]} · ♥ ${playerNames[1] || 'Player 2'}: ${state.scores[1]}` : '');
     byId('dice').hidden = game !== 'snakes';
@@ -291,7 +328,7 @@
       state.positions.forEach((position, i) => {
         const piece = document.createElement('span');
         piece.id = 'piece-' + i;
-        piece.className = i ? 'piece heart' : 'piece';
+        piece.className = `piece ${['', 'heart', 'diamond'][i]}${playerCount === 3 ? ' three' : ''}`;
         piece.textContent = icons[i];
         piece.setAttribute('aria-label', `${playerNames[i] || 'Player 2'}, square ${position}`);
         place(piece, animate && roll.player === i ? roll.start : position, i);
@@ -320,10 +357,11 @@
     if (focusedCell !== undefined) board.querySelector(`[data-cell="${focusedCell}"]:enabled`)?.focus();
   }
   async function request(action, extra = {}) {
+    const round = currentRound;
     if (busy) {
-      if (action === 'move' && !pendingMove) {
+      if (['move', 'switch', 'restart', 'exit'].includes(action) && !pendingMove) {
         pendingMove = true;
-        queuedMove = { extra, session };
+        queuedMove = { action, extra: { round, ...extra }, session };
       }
       return;
     }
@@ -333,7 +371,7 @@
     try {
       const response = await fetch('/room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...session, action, name: byId('nickname').value, ...extra }), signal: AbortSignal.timeout(15000)
+        body: JSON.stringify({ ...session, action, round, name: byId('nickname').value, ...extra }), signal: AbortSignal.timeout(15000)
       });
       const state = await response.json();
       if (previous !== session) return;
@@ -342,12 +380,15 @@
         say('error', state.error);
         return;
       }
+      if (action === 'exit') { leave(); return; }
+      if (action === 'switch') menuOpen = false;
       if (!session) {
         session = { code: state.code, token: state.token };
         sessionStorage.setItem('gameRoom', JSON.stringify(session));
       }
       if (!queuedMove) render(state);
-      if (action === 'create' || action === 'join') byId('game-title').focus();
+      if (action === 'create' || action === 'join') byId('lobby-title').focus();
+      if (action === 'switch') byId('game-title').focus();
       if (action !== 'state' || byId('error').textContent.startsWith('Connection')) say('error', '');
     } catch {
       if (previous === session) say('error', 'Connection interrupted. Check your internet and try again.');
@@ -358,7 +399,7 @@
       queuedMove = null;
       if (next) {
         pendingMove = false;
-        if (session && session === next.session) request('move', next.extra);
+        if (session && session === next.session) request(next.action, next.extra);
       }
     }
   }
@@ -366,22 +407,34 @@
     session = null;
     animation = null;
     lastRoll = null;
+    currentRound = null;
+    newest = null;
+    menuOpen = false;
     diceMotion?.cancel();
     lastBoard = '';
     sessionStorage.removeItem('gameRoom');
     byId('room').hidden = true;
     byId('lobby').hidden = false;
     say('error', '');
-    document.querySelector('[data-game]').focus();
+    byId('nickname').focus();
   }
   document.querySelectorAll('[data-game]').forEach(node => {
-    node.onclick = () => request('create', { game: node.dataset.game, pace: byId('pace').value });
+    node.onclick = () => request('switch', { game: node.dataset.game, pace: byId('pace').value });
   });
+  byId('create').onsubmit = event => {
+    event.preventDefault();
+    request('create', { capacity: Number(byId('capacity').value) });
+  };
   byId('join').onsubmit = event => {
     event.preventDefault();
     request('join', { code: byId('invite').value.trim() });
   };
-  byId('leave').onclick = leave;
+  byId('leave').onclick = () => request('exit');
+  byId('choose').onclick = () => {
+    menuOpen = !menuOpen;
+    byId('game-menu').hidden = !menuOpen;
+    byId('choose').setAttribute('aria-expanded', String(menuOpen));
+  };
   byId('roll').onclick = () => request('move');
   byId('restart').onclick = () => request('restart');
   session = JSON.parse(sessionStorage.getItem('gameRoom') || 'null');

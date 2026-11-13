@@ -17,7 +17,8 @@ function newBoard(room) {
   room.turn = 0;
   room.winner = null;
   room.message = '';
-  room.positions = [1, 1];
+  room.positions = Array(room.capacity).fill(1);
+  room.round = randomBytes(8).toString('hex');
   room.roll = null;
   room.grid = Array(42).fill(null);
   room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢'].flatMap(face => [face, face]);
@@ -40,7 +41,8 @@ function settle(room) {
 }
 
 function move(room, player, cell) {
-  if (room.players.length !== 2 || room.turn !== player || room.winner !== null || room.hideAt) {
+  const seats = room.game === 'snakes' ? room.capacity : 2;
+  if (!room.game || room.players.length < seats || room.turn !== player || room.winner !== null || room.hideAt) {
     throw new Error('Wait for your turn.');
   }
   if (room.game === 'snakes') {
@@ -95,7 +97,7 @@ function move(room, player, cell) {
     }
     return;
   }
-  room.turn = 1 - player;
+  room.turn = (player + 1) % seats;
 }
 
 function reply(res, status, value) {
@@ -104,7 +106,7 @@ function reply(res, status, value) {
 }
 
 function handle(data) {
-  const { action, code, token, game, cell, name, pace } = data;
+  const { action, code, token, game, cell, name, pace, capacity, round } = data;
   const nickname = typeof name === 'string' ? name.trim().slice(0, 20) : '';
   const now = Date.now();
   for (const [key, room] of rooms) if (now - room.touched > expiry) rooms.delete(key);
@@ -112,10 +114,9 @@ function handle(data) {
   let player;
   if (action === 'create') {
     if (rooms.size >= 500) throw new Error('The game world is busy. Try again soon.');
-    if (!games.includes(game)) throw new Error('Pick a game.');
     let key;
     do { key = randomBytes(5).toString('hex').toUpperCase(); } while (rooms.has(key));
-    room = { code: key, game, players: [randomBytes(24).toString('hex')], names: [nickname || 'Player 1'] };
+    room = { code: key, game: null, capacity: capacity === 3 ? 3 : 2, players: [randomBytes(24).toString('hex')], names: [nickname || 'Player 1'] };
     room.pace = Object.hasOwn(boards, pace) ? pace : 'classic';
     newBoard(room);
     rooms.set(key, room);
@@ -124,7 +125,7 @@ function handle(data) {
     room = rooms.get(typeof code === 'string' ? code.trim().toUpperCase() : '');
     if (!room) throw new Error('Room expired or code not found. Check the code or make a new room.');
     if (action === 'join') {
-      if (room.players.length === 2) throw new Error('This room already has two players.');
+      if (room.players.length >= room.capacity) throw new Error('This lobby is full.');
       player = room.players.push(randomBytes(24).toString('hex')) - 1;
       room.names.push(nickname || 'Player 2');
     } else {
@@ -133,6 +134,27 @@ function handle(data) {
     }
   }
   settle(room);
+  if (action === 'exit') {
+    if (player === 0) rooms.delete(room.code);
+    else {
+      room.players.splice(player, 1);
+      room.names.splice(player, 1);
+      if (room.game === 'snakes' || player === 1) {
+        room.game = null;
+        newBoard(room);
+      }
+    }
+    return {};
+  }
+  if (action === 'switch') {
+    if (player !== 0 || !games.includes(game)) throw new Error('Only the host can choose the game.');
+    room.game = game;
+    room.pace = Object.hasOwn(boards, pace) ? pace : 'classic';
+    newBoard(room);
+  }
+  if (action === 'move' || action === 'restart') {
+    if (round !== room.round) throw new Error('The game changed. Try again on the new board.');
+  }
   if (action === 'move') move(room, player, cell);
   if (action === 'restart') {
     if (player !== 0 || room.winner === null) throw new Error('Player 1 can restart after the game.');
@@ -141,7 +163,8 @@ function handle(data) {
   room.touched = now;
   return {
     code: room.code, token: room.players[player], player, game: room.game,
-    ready: room.players.length === 2, turn: room.turn, winner: room.winner,
+    ready: Boolean(room.game) && room.players.length >= (room.game === 'snakes' ? room.capacity : 2),
+    capacity: room.capacity, round: room.round, turn: room.turn, winner: room.winner,
     positions: room.positions, ...boards[room.pace], pace: room.pace, message: room.message, grid: room.grid,
     names: room.names, roll: room.roll,
     scores: room.scores, paused: Boolean(room.hideAt),
@@ -164,7 +187,7 @@ const server = http.createServer(async (req, res) => {
       if (body.length > 2048) return reply(res, 413, { error: 'Request is too large.' });
     }
     const data = JSON.parse(body);
-    if (!['create', 'join', 'state', 'move', 'restart'].includes(data?.action)) {
+    if (!['create', 'join', 'state', 'move', 'restart', 'switch', 'exit'].includes(data?.action)) {
       throw new Error('Choose a room action.');
     }
     reply(res, 200, handle(data));
