@@ -72,7 +72,9 @@
     <input id="nickname" maxlength="20" placeholder="Pick a nickname" style="text-transform:none">
     <form id="create">
       <label for="capacity">Players in your lobby</label>
-      <select class="pace" id="capacity"><option value="2">2 players</option><option value="3">3 players</option></select>
+      <div class="pace-picker" style="margin-inline:0">
+        <select class="pace" id="capacity"><option value="2">2 players</option><option value="3">3 players</option></select>
+      </div>
       <button>Create lobby</button>
     </form>
     <form id="join">
