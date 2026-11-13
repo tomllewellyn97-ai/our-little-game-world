@@ -197,7 +197,7 @@ function handle(data) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'GET' && ['/', '/snakes-setup'].includes(req.url)) {
+  if (req.method === 'GET' && ['/', '/snakes-setup', '/pairs-setup'].includes(req.url)) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Referrer-Policy': 'no-referrer' });
     return res.end(page);
   }

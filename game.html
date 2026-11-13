@@ -110,18 +110,21 @@
         <div><button data-game="snakes">Set up Snakes &amp; Ladders</button></div>
       </div>
       <div class="tile gold"><span aria-hidden="true">🐱 🐱</span><h2>Matching Pairs</h2>
-        <label for="pairs-pace">Game length</label>
-        <div class="pace-picker"><select class="pace" id="pairs-pace">
-          <option value="quick">Quick · 8 cards</option><option value="classic" selected>Classic · 12 cards</option><option value="long">Long · 20 cards</option>
-        </select></div>
-        <button data-game="pairs">Start Matching Pairs</button>
+        <button data-game="pairs">Set up Matching Pairs</button>
       </div>
       <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
       <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><p>Coming soon</p></div>
     </div>
     </div>
     <form id="setup" hidden>
-      <h2>Snakes &amp; Ladders options</h2>
+      <h2 id="setup-title"></h2>
+      <div id="pairs-options" hidden>
+        <label for="pairs-pace">Game length</label>
+        <div class="pace-picker"><select class="pace" id="pairs-pace">
+          <option value="quick">Quick · 8 cards</option><option value="classic" selected>Classic · 12 cards</option><option value="long">Long · 20 cards</option>
+        </select></div>
+      </div>
+      <div id="snakes-options">
       <label for="pace">Board size</label>
       <div class="pace-picker"><select class="pace" id="pace">
         <option value="quick">Quick · 16 squares</option><option value="classic">Classic · 25 squares</option><option value="long">Long · 49 squares</option>
@@ -132,6 +135,7 @@
       </select></div>
       <p id="setup-piece-label"><strong>Your playing piece</strong></p>
       <div id="setup-pieces" class="piece-picker" role="group" aria-labelledby="setup-piece-label"></div>
+      </div>
       <button>Start game</button>
       <button type="button" id="cancel-setup">Cancel</button>
     </form>
@@ -197,7 +201,8 @@
   let lastRoll = null;
   let animation = null;
   let newest = null;
-  let setupPage = location.pathname === '/snakes-setup';
+  const setupRoutes = { '/snakes-setup': 'snakes', '/pairs-setup': 'pairs' };
+  let setupPage = setupRoutes[location.pathname];
   let currentRound = null;
   let playerCount = 2;
   let size = 5;
@@ -491,22 +496,26 @@
     byId('nickname').focus();
   }
   document.querySelectorAll('[data-game]').forEach(node => {
-    node.onclick = () => node.dataset.game === 'snakes' ? openSetup() :
-      request('switch', { game: node.dataset.game, pace: byId('pairs-pace').value });
+    const game = node.dataset.game;
+    node.onclick = () => game === 'connect' ? request('switch', { game }) : openSetup(game);
   });
-  function openSetup() {
+  function openSetup(game) {
     byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';
     byId('theme').value = newest.game === 'snakes' ? newest.theme : 'classic';
-    setupPage = true;
-    history.pushState(null, '', '/snakes-setup');
+    byId('pairs-pace').value = newest.game === 'pairs' ? newest.pace : 'classic';
+    setupPage = game;
+    history.pushState(null, '', `/${game}-setup`);
     showSetup();
-    byId('pace').focus();
+    byId(game === 'pairs' ? 'pairs-pace' : 'pace').focus();
   }
   function showSetup() {
     const visible = setupPage && newest?.player === 0;
     byId('setup').hidden = !visible;
     byId('customize').hidden = visible;
     if (visible) {
+      say('setup-title', names[setupPage] + ' options');
+      byId('pairs-options').hidden = setupPage !== 'pairs';
+      byId('snakes-options').hidden = setupPage !== 'snakes';
       byId('lobby-pieces').hidden = true;
       byId('customize').setAttribute('aria-expanded', 'false');
     }
@@ -523,12 +532,13 @@
     if (redraw && newest) render(newest);
   }
   window.addEventListener('popstate', () => {
-    setupPage = location.pathname === '/snakes-setup';
+    setupPage = setupRoutes[location.pathname];
     if (newest) render(newest);
   });
   byId('setup').onsubmit = event => {
     event.preventDefault();
-    request('switch', { game: 'snakes', pace: byId('pace').value, theme: byId('theme').value });
+    if (setupPage === 'pairs') request('switch', { game: 'pairs', pace: byId('pairs-pace').value });
+    if (setupPage === 'snakes') request('switch', { game: 'snakes', pace: byId('pace').value, theme: byId('theme').value });
   };
   byId('cancel-setup').onclick = () => closeSetup();
   byId('customize').onclick = () => {
@@ -547,7 +557,7 @@
   byId('leave').onclick = () => request('exit');
   byId('choose').onclick = () => request('lobby');
   byId('roll').onclick = () => request('move');
-  byId('restart').onclick = () => newest.game === 'snakes' ? openSetup() : request('restart');
+  byId('restart').onclick = () => newest.game === 'connect' ? request('restart') : openSetup(newest.game);
   session = JSON.parse(sessionStorage.getItem('gameRoom') || 'null');
   if (session) request('state');
   setInterval(() => { if (session) request('state'); }, 700);
