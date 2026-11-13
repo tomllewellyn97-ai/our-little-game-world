@@ -38,6 +38,12 @@
   .card { aspect-ratio: 1; font-size: clamp(1.3rem,5vw,2.6rem); background: #ffe190; padding: 0; }
   .card:disabled { color: inherit; }
   .card.matched { background: #c5edb5; }
+  .card.matched, .pair-score { background: var(--pair-colour, #c5edb5); }
+  .pair-player-0 { --pair-colour: #bcdcff; }
+  .pair-player-1 { --pair-colour: #ffc6db; }
+  .pair-player-2 { --pair-colour: #c5edb5; }
+  #pair-scores { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+  .pair-score { border: 1px solid #282344; border-radius: .65rem; padding: .3rem .65rem; font-weight: bold; overflow-wrap: anywhere; }
   #board { position: relative; }
   #board.snake-board { gap: 0; border: 3px solid; border-radius: .8rem; overflow: hidden; }
   .snake-board .square { border-radius: 0; padding: .3rem; font-weight: bold; }
@@ -146,6 +152,7 @@
     <p id="status" role="status" aria-atomic="true"></p>
     <p id="rules"></p>
     <p id="detail"></p>
+    <div id="pair-scores" aria-label="Matching Pairs scores" role="group" hidden></div>
     <div id="dice">
       <div id="die-stage" class="die-stage" aria-hidden="true" hidden><div id="cube"></div></div>
       <div>
@@ -352,15 +359,29 @@
     const status = !ready ? 'Waiting for players…' : winner === null ? play : end;
     say('status', status);
     byId('status').dataset.turn = active ? 'yours' : '';
-    say('detail', game === 'snakes' ? (animate ? '' : state.message) : game === 'pairs' ?
-      playerNames.map((name, i) => `${pieces[i]} ${name}: ${state.scores[i]}`).join(' · ') : '');
+    say('detail', game === 'snakes' && !animate ? state.message : '');
+    const scores = byId('pair-scores');
+    scores.hidden = game !== 'pairs';
+    if (game === 'pairs') {
+      const labels = playerNames.map((name, i) => `${pieces[i]} ${name}: ${state.scores[i]}`);
+      const scoreKey = JSON.stringify(labels);
+      if (scores.dataset.key !== scoreKey) {
+        scores.dataset.key = scoreKey;
+        scores.replaceChildren(...labels.map((label, i) => {
+          const badge = document.createElement('span');
+          badge.className = `pair-score pair-player-${i}`;
+          badge.textContent = label;
+          return badge;
+        }));
+      }
+    }
     byId('die-stage').hidden = game !== 'snakes';
     byId('dice-result').hidden = game !== 'snakes';
     if (!roll) { cube.style.transform = rotation(0,0); say('dice-result', 'Ready to roll'); }
     byId('roll').disabled = !active;
     byId('roll').hidden = game !== 'snakes' || !active;
     byId('restart').hidden = player !== 0 || winner === null;
-    const key = JSON.stringify([game, size, state.theme, pieces, active, state.grid, state.cards, state.positions, state.matched, animate ? roll.id : null]);
+    const key = JSON.stringify([game, size, state.theme, pieces, active, state.grid, state.cards, state.positions, state.matched, state.cardOwners, animate ? roll.id : null]);
     if (key === lastBoard) return;
     lastBoard = key;
     const board = byId('board');
@@ -415,8 +436,10 @@
     } else if (game === 'pairs') {
       state.cards.forEach((face, i) => {
         const matched = state.matched.includes(i);
-        const node = button(face || '?', matched ? 'card matched' : 'card', i, !active || Boolean(face));
-        node.setAttribute('aria-label', face ? `Card ${i + 1}: ${face}` : `Flip card ${i + 1}`);
+        const owner = state.cardOwners?.[i];
+        const node = button(face || '?', matched ? `card matched pair-player-${owner}` : 'card', i, !active || Boolean(face));
+        const attribution = owner === undefined ? '' : `, matched by ${playerNames[owner]}`;
+        node.setAttribute('aria-label', face ? `Card ${i + 1}: ${face}${attribution}` : `Flip card ${i + 1}`);
       });
     } else {
       for (let col = 0; col < 7; col++) {

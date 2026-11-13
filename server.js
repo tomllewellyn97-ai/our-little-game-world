@@ -36,6 +36,7 @@ function newBoard(room) {
   }
   room.open = [];
   room.matched = [];
+  room.cardOwners = {};
   room.scores = Array(room.capacity).fill(0);
   room.hideAt = 0;
 }
@@ -95,6 +96,8 @@ function move(room, player, cell) {
     const [a, b] = room.open;
     if (room.cards[a] === room.cards[b]) {
       room.matched.push(a, b);
+      room.cardOwners[a] = player;
+      room.cardOwners[b] = player;
       room.open = [];
       room.scores[player]++;
       if (room.matched.length === room.cards.length) {
@@ -192,7 +195,7 @@ function handle(data) {
     names: room.names, roll: room.roll, theme: room.theme, pieces: room.pieces, choices: pieces,
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
-    matched: room.matched
+    matched: room.matched, cardOwners: room.cardOwners
   };
 }
 
