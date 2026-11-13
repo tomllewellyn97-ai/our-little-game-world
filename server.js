@@ -11,6 +11,12 @@ const boards = {
   long: { size: 7, jumps: { 4: 17, 9: 23, 19: 32, 28: 41, 38: 46, 15: 7, 26: 13, 35: 22, 44: 31, 48: 39 } }
 };
 const games = ['snakes', 'pairs', 'connect'];
+const themes = ['classic', 'jungle', 'space', 'ocean'];
+const pieces = ['★', '♥', '◆', '🐱', '🐶', '🦊', '🐸', '🦄', '🚀', '🐢', '🐙', '🦋'];
+function availablePiece(room, choice) {
+  const available = pieces.filter(piece => !room.pieces.includes(piece));
+  return available.includes(choice) ? choice : available[0];
+}
 const expiry = 2 * 60 * 60 * 1000;
 
 function newBoard(room) {
@@ -106,7 +112,7 @@ function reply(res, status, value) {
 }
 
 function handle(data) {
-  const { action, code, token, game, cell, name, pace, capacity, round } = data;
+  const { action, code, token, game, cell, name, pace, capacity, round, theme, piece } = data;
   const nickname = typeof name === 'string' ? name.trim().slice(0, 20) : '';
   const now = Date.now();
   for (const [key, room] of rooms) if (now - room.touched > expiry) rooms.delete(key);
@@ -118,6 +124,9 @@ function handle(data) {
     do { key = randomBytes(5).toString('hex').toUpperCase(); } while (rooms.has(key));
     room = { code: key, game: null, capacity: capacity === 3 ? 3 : 2, players: [randomBytes(24).toString('hex')], names: [nickname || 'Player 1'] };
     room.pace = Object.hasOwn(boards, pace) ? pace : 'classic';
+    room.theme = 'classic';
+    room.pieces = [];
+    room.pieces.push(availablePiece(room, piece));
     newBoard(room);
     rooms.set(key, room);
     player = 0;
@@ -128,6 +137,7 @@ function handle(data) {
       if (room.players.length >= room.capacity) throw new Error('This lobby is full.');
       player = room.players.push(randomBytes(24).toString('hex')) - 1;
       room.names.push(nickname || 'Player 2');
+      room.pieces.push(availablePiece(room, piece));
     } else {
       player = room.players.indexOf(token);
       if (player < 0) throw new Error('Please join the room first.');
@@ -139,6 +149,7 @@ function handle(data) {
     else {
       room.players.splice(player, 1);
       room.names.splice(player, 1);
+      room.pieces.splice(player, 1);
       if (room.game === 'snakes' || player === 1) {
         room.game = null;
         newBoard(room);
@@ -146,10 +157,17 @@ function handle(data) {
     }
     return {};
   }
+  if (action === 'piece') {
+    if (!pieces.includes(piece) || room.pieces.some((value, i) => i !== player && value === piece)) {
+      throw new Error('That piece is taken. Pick another one.');
+    }
+    room.pieces[player] = piece;
+  }
   if (action === 'switch') {
     if (player !== 0 || !games.includes(game)) throw new Error('Only the host can choose the game.');
     room.game = game;
     room.pace = Object.hasOwn(boards, pace) ? pace : 'classic';
+    room.theme = themes.includes(theme) ? theme : 'classic';
     newBoard(room);
   }
   if (action === 'move' || action === 'restart') {
@@ -166,7 +184,7 @@ function handle(data) {
     ready: Boolean(room.game) && room.players.length >= (room.game === 'snakes' ? room.capacity : 2),
     capacity: room.capacity, round: room.round, turn: room.turn, winner: room.winner,
     positions: room.positions, ...boards[room.pace], pace: room.pace, message: room.message, grid: room.grid,
-    names: room.names, roll: room.roll,
+    names: room.names, roll: room.roll, theme: room.theme, pieces: room.pieces, choices: pieces,
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
     matched: room.matched
@@ -187,7 +205,7 @@ const server = http.createServer(async (req, res) => {
       if (body.length > 2048) return reply(res, 413, { error: 'Request is too large.' });
     }
     const data = JSON.parse(body);
-    if (!['create', 'join', 'state', 'move', 'restart', 'switch', 'exit'].includes(data?.action)) {
+    if (!['create', 'join', 'state', 'move', 'restart', 'switch', 'exit', 'piece'].includes(data?.action)) {
       throw new Error('Choose a room action.');
     }
     reply(res, 200, handle(data));

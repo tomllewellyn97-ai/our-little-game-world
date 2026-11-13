@@ -58,6 +58,16 @@
   .pace-picker::after { content: ""; position: absolute; right: .9rem; top: 45%; width: .5rem; height: .5rem; border: solid #315740; border-width: 0 2px 2px 0; transform: translateY(-50%) rotate(45deg); pointer-events: none; }
   #game-menu { margin-top: 1rem; }
   #game-menu .tiles { margin: 1rem 0; }
+  .piece-picker { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0 1rem; }
+  .piece-picker button { min-width: 44px; font-size: 1.2rem; }
+  .piece-picker button[aria-pressed="true"] { background: #e5d9ff; outline: 2px solid #6240b1; }
+  #setup { border: 2px solid #315740; border-radius: 1rem; padding: 1rem; background: #f8fff0; }
+  #setup .pace-picker { margin-inline: 0; }
+  .snake-board[data-theme="jungle"] { --square-a: #d9efac; --square-b: #ffe4a0; --snake: #177248; --ladder: #74421e; }
+  .snake-board[data-theme="space"] { --square-a: #d9d4ff; --square-b: #aedcf5; --snake: #6538ac; --ladder: #364985; }
+  .snake-board[data-theme="ocean"] { --square-a: #bceee9; --square-b: #c9e1ff; --snake: #086e83; --ladder: #87431e; }
+  .snake-board .square { background: var(--square-a, #f2e4ff); }
+  .snake-board .square:nth-child(even) { background: var(--square-b, #e1f4d3); }
   .piece.diamond { background: #ffe190; }
   .piece.three { width: 5%; min-width: 0; font-size: clamp(.55rem, 2.5vw, 1rem); }
   @media (forced-colors: active) { .pace { appearance: auto; } .pace-picker::after { display: none; } }
@@ -70,6 +80,8 @@
   <div id="lobby">
     <label for="nickname">Your player name</label>
     <input id="nickname" maxlength="20" placeholder="Pick a nickname" style="text-transform:none">
+    <p id="entry-piece-label"><strong>Your playing piece</strong></p>
+    <div id="entry-pieces" class="piece-picker" role="group" aria-labelledby="entry-piece-label"></div>
     <form id="create">
       <label for="capacity">Players in your lobby</label>
       <div class="pace-picker" style="margin-inline:0">
@@ -89,23 +101,34 @@
     <p>Lobby code <strong id="code"></strong></p>
     <p id="players" role="status"></p>
     <p id="lobby-status" role="status"></p>
+    <button id="customize" aria-controls="lobby-pieces" aria-expanded="false">Choose my piece</button>
+    <div id="lobby-pieces" class="piece-picker" role="group" aria-label="Choose your playing piece" hidden></div>
     <button id="choose" hidden aria-expanded="false" aria-controls="game-menu">Change game</button>
     <div id="game-menu" hidden>
     <div class="tiles">
       <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2>
-        <label for="pace">Game length</label>
-        <div class="pace-picker"><select class="pace" id="pace">
-          <option value="quick">Quick · 16 squares</option>
-          <option value="classic" selected>Classic · 25 squares</option>
-          <option value="long">Long · 49 squares</option>
-        </select></div>
-        <div><button data-game="snakes">Start Snakes &amp; Ladders</button></div>
+        <div><button data-game="snakes">Set up Snakes &amp; Ladders</button></div>
       </div>
       <div class="tile gold"><span aria-hidden="true">🐱 🐱</span><h2>Matching Pairs</h2><button data-game="pairs">Start Matching Pairs</button></div>
       <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
       <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><p>Coming soon</p></div>
     </div>
     </div>
+    <form id="setup" hidden>
+      <h2>Snakes &amp; Ladders options</h2>
+      <label for="pace">Board size</label>
+      <div class="pace-picker"><select class="pace" id="pace">
+        <option value="quick">Quick · 16 squares</option><option value="classic">Classic · 25 squares</option><option value="long">Long · 49 squares</option>
+      </select></div>
+      <label for="theme">Board theme</label>
+      <div class="pace-picker"><select class="pace" id="theme">
+        <option value="classic">🌈 Classic</option><option value="jungle">🌿 Jungle</option><option value="space">🪐 Space</option><option value="ocean">🌊 Ocean</option>
+      </select></div>
+      <p id="setup-piece-label"><strong>Your playing piece</strong></p>
+      <div id="setup-pieces" class="piece-picker" role="group" aria-labelledby="setup-piece-label"></div>
+      <button>Start game</button>
+      <button type="button" id="cancel-setup">Cancel</button>
+    </form>
     <div id="current-game" hidden>
     <h2 id="game-title" tabindex="-1"></h2>
     <p id="status" role="status"></p>
@@ -131,6 +154,33 @@
     connect: 'Drop a piece into a column. Get four in a row to win!'
   };
   const icons = ['★', '♥', '◆'];
+  const pieceLabels = {'★':'Star','♥':'Heart','◆':'Diamond','🐱':'Cat','🐶':'Dog','🦊':'Fox','🐸':'Frog','🦄':'Unicorn','🚀':'Rocket','🐢':'Turtle','🐙':'Octopus','🦋':'Butterfly'};
+  let entryPiece = '';
+  function piecePicker(id, chosen, taken, choose) {
+    const picker = byId(id);
+    const key = JSON.stringify([chosen, taken]);
+    if (picker.dataset.key === key) return;
+    picker.dataset.key = key;
+    const focused = document.activeElement?.dataset.piece;
+    picker.replaceChildren();
+    for (const [piece, label] of Object.entries(pieceLabels)) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.piece = piece;
+      button.textContent = piece;
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      button.setAttribute('aria-pressed', String(piece === chosen));
+      button.disabled = taken.includes(piece);
+      button.onclick = () => choose(piece);
+      picker.append(button);
+      if (focused === piece && !button.disabled && !picker.hidden) button.focus();
+    }
+  }
+  function drawEntryPieces() {
+    piecePicker('entry-pieces', entryPiece, [], piece => { entryPiece = piece; drawEntryPieces(); });
+  }
+  drawEntryPieces();
   let session = null;
   let busy = false;
   let pendingMove = false;
@@ -173,12 +223,12 @@
       const [a, b] = point(to);
       if (to > Number(from)) {
         const length = Math.hypot(a - x, b - y);
-        return `<g transform="translate(${x} ${y}) rotate(${Math.atan2(b-y,a-x)*180/Math.PI})" stroke="#74421e" stroke-width="1.25" stroke-linecap="round">
+        return `<g transform="translate(${x} ${y}) rotate(${Math.atan2(b-y,a-x)*180/Math.PI})" style="stroke:var(--ladder,#74421e)" stroke-width="1.25" stroke-linecap="round">
           <path d="M0 -2.5H${length}M0 2.5H${length}"/>
           ${Array.from({length: Math.floor(length / 4)}, (_, i) => `<path d="M${i*4+2} -2.5v5"/>`).join('')}</g>`;
       }
-      return `<g><path id="snake-${from}" d="M${a} ${b} C${a+12} ${b-9} ${x-12} ${y+9} ${x} ${y}" fill="none" stroke="#237956" stroke-width="3" stroke-linecap="round"/>
-        <circle cx="${x}" cy="${y}" r="3" fill="#237956"/><circle cx="${x-1}" cy="${y-.7}" r=".55" fill="white"/><circle cx="${x+1}" cy="${y-.7}" r=".55" fill="white"/></g>`;
+      return `<g><path id="snake-${from}" d="M${a} ${b} C${a+12} ${b-9} ${x-12} ${y+9} ${x} ${y}" fill="none" style="stroke:var(--snake,#237956)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="${x}" cy="${y}" r="3" style="fill:var(--snake,#237956)"/><circle cx="${x-1}" cy="${y-.7}" r=".55" fill="white"/><circle cx="${x+1}" cy="${y-.7}" r=".55" fill="white"/></g>`;
     }).join('');
     return `<svg class="paths" viewBox="0 0 100 100" aria-hidden="true">${artwork}</svg>`;
   }
@@ -263,7 +313,11 @@
     byId('lobby').hidden = true;
     byId('room').hidden = false;
     say('code', code);
-    say('players', `${state.names.length}/${state.capacity} joined · ${state.names.map((name, i) => `${icons[i]} ${name}`).join(' · ')}`);
+    const pieces = state.pieces || icons;
+    say('players', `${state.names.length}/${state.capacity} joined · ${state.names.map((name, i) => `${pieces[i]} ${name}`).join(' · ')}`);
+    for (const id of ['lobby-pieces', 'setup-pieces']) {
+      piecePicker(id, pieces[player], pieces.filter((_, i) => i !== player), piece => request('piece', { piece }));
+    }
     const watching = Boolean(game && game !== 'snakes' && player === 2);
     say('lobby-status', !game ? (player === 0 ? 'Pick a game to play.' : 'Waiting for the host to pick a game.') :
       watching ? 'You’re watching this two-player game. Everyone can play Snakes & Ladders.' : '');
@@ -275,7 +329,7 @@
     say('game-title', names[game]);
     const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long' };
     say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${rules.snakes} Reach ${size ** 2} to win!` : rules[game]);
-    const you = `You are ${playerNames[player]} ${icons[player]}`;
+    const you = `You are ${playerNames[player]} ${game === 'snakes' ? pieces[player] : icons[player]}`;
     const turnText = active ? 'Your turn!' : `${playerNames[turn]}’s turn`;
     const play = paused ? 'Try to remember those cards!' : turnText;
     const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : `${playerNames[winner]} wins!`;
@@ -286,13 +340,14 @@
     if (!roll) { cube.style.transform = rotation(0,0); say('dice-result', 'Ready to roll'); }
     byId('roll').disabled = !active;
     byId('restart').hidden = player !== 0 || winner === null;
-    const key = JSON.stringify([game, size, active, state.grid, state.cards, state.positions, state.matched, animate ? roll.id : null]);
+    const key = JSON.stringify([game, size, state.theme, pieces, active, state.grid, state.cards, state.positions, state.matched, animate ? roll.id : null]);
     if (key === lastBoard) return;
     lastBoard = key;
     const board = byId('board');
     const focusedCell = document.activeElement?.dataset.cell;
     board.replaceChildren();
     board.classList.toggle('snake-board', game === 'snakes');
+    board.dataset.theme = state.theme;
     board.classList.toggle('large', size === 7);
     const columns = game === 'snakes' ? size : game === 'pairs' ? 4 : 7;
     board.style.gridTemplateColumns = `repeat(${columns}, minmax(0,1fr))`;
@@ -331,7 +386,7 @@
         const piece = document.createElement('span');
         piece.id = 'piece-' + i;
         piece.className = `piece ${['', 'heart', 'diamond'][i]}${playerCount === 3 ? ' three' : ''}`;
-        piece.textContent = icons[i];
+        piece.textContent = pieces[i] || icons[i];
         piece.setAttribute('aria-label', `${playerNames[i] || 'Player 2'}, square ${position}`);
         place(piece, animate && roll.player === i ? roll.start : position, i);
         board.append(piece);
@@ -361,7 +416,7 @@
   async function request(action, extra = {}) {
     const round = currentRound;
     if (busy) {
-      if (['move', 'switch', 'restart', 'exit'].includes(action) && !pendingMove) {
+      if (['move', 'switch', 'restart', 'exit', 'piece'].includes(action) && !pendingMove) {
         pendingMove = true;
         queuedMove = { action, extra: { round, ...extra }, session };
       }
@@ -383,7 +438,7 @@
         return;
       }
       if (action === 'exit') { leave(); return; }
-      if (action === 'switch') menuOpen = false;
+      if (action === 'switch') { menuOpen = false; byId('setup').hidden = true; }
       if (!session) {
         session = { code: state.code, token: state.token };
         sessionStorage.setItem('gameRoom', JSON.stringify(session));
@@ -416,20 +471,39 @@
     lastBoard = '';
     sessionStorage.removeItem('gameRoom');
     byId('room').hidden = true;
+    byId('setup').hidden = true;
+    byId('lobby-pieces').hidden = true;
+    byId('customize').setAttribute('aria-expanded', 'false');
     byId('lobby').hidden = false;
     say('error', '');
     byId('nickname').focus();
   }
   document.querySelectorAll('[data-game]').forEach(node => {
-    node.onclick = () => request('switch', { game: node.dataset.game, pace: byId('pace').value });
+    node.onclick = () => node.dataset.game === 'snakes' ? openSetup() : request('switch', { game: node.dataset.game });
   });
+  function openSetup() {
+    byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';
+    byId('theme').value = newest.game === 'snakes' ? newest.theme : 'classic';
+    byId('setup').hidden = false;
+    byId('pace').focus();
+  }
+  byId('setup').onsubmit = event => {
+    event.preventDefault();
+    request('switch', { game: 'snakes', pace: byId('pace').value, theme: byId('theme').value });
+  };
+  byId('cancel-setup').onclick = () => { byId('setup').hidden = true; };
+  byId('customize').onclick = () => {
+    const picker = byId('lobby-pieces');
+    picker.hidden = !picker.hidden;
+    byId('customize').setAttribute('aria-expanded', String(!picker.hidden));
+  };
   byId('create').onsubmit = event => {
     event.preventDefault();
-    request('create', { capacity: Number(byId('capacity').value) });
+    request('create', { capacity: Number(byId('capacity').value), piece: entryPiece });
   };
   byId('join').onsubmit = event => {
     event.preventDefault();
-    request('join', { code: byId('invite').value.trim() });
+    request('join', { code: byId('invite').value.trim(), piece: entryPiece });
   };
   byId('leave').onclick = () => request('exit');
   byId('choose').onclick = () => {
@@ -438,7 +512,7 @@
     byId('choose').setAttribute('aria-expanded', String(menuOpen));
   };
   byId('roll').onclick = () => request('move');
-  byId('restart').onclick = () => request('restart');
+  byId('restart').onclick = () => newest.game === 'snakes' ? openSetup() : request('restart');
   session = JSON.parse(sessionStorage.getItem('gameRoom') || 'null');
   if (session) request('state');
   setInterval(() => { if (session) request('state'); }, 700);
