@@ -38,12 +38,26 @@
   .card { aspect-ratio: 1; font-size: clamp(1.3rem,5vw,2.6rem); background: #ffe190; padding: 0; }
   .card:disabled { color: inherit; }
   .card.matched { background: #c5edb5; }
+  #board { position: relative; }
+  #board.snake-board { gap: 0; border: 3px solid; border-radius: .8rem; overflow: hidden; }
+  .snake-board .square { border-radius: 0; padding: .3rem; font-weight: bold; }
+  .paths { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .piece { position: absolute; z-index: 2; display: grid; place-items: center; width: 9%; aspect-ratio: 1; border: 2px solid #282344; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); transition: left .17s ease, top .17s ease; font-size: clamp(.8rem,4vw,1.5rem); }
+  .piece.heart { background: #ffd0e1; }
+  .piece.jump { transition-duration: .55s; }
+  #dice { display: flex; gap: .6rem; align-items: center; }
+  #face { font-size: 3.2rem; line-height: 1; color: #6240b1; }
+  #face.spinning { animation: tumble .22s ease-in-out infinite alternate; }
+  @keyframes tumble { from { transform: rotate(-23deg) translateY(-4px); } to { transform: rotate(23deg) translateY(4px); } }
+  @media (prefers-reduced-motion: reduce) { #face.spinning { animation: none; } .piece { transition: none; } }
 </style>
 </head>
 <body>
 <main>
   <header><span aria-hidden="true">🌈</span><h1>Our Little Game World</h1><p>Pick a game and invite someone to play.</p></header>
   <div id="lobby">
+    <label for="nickname">Your player name</label>
+    <input id="nickname" maxlength="20" placeholder="Pick a nickname" style="text-transform:none">
     <div class="tiles">
       <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2><button data-game="snakes">Start Snakes &amp; Ladders</button></div>
       <div class="tile gold"><span aria-hidden="true">🐱 🐱</span><h2>Matching Pairs</h2><button data-game="pairs">Start Matching Pairs</button></div>
@@ -63,6 +77,7 @@
     <p id="status" role="status"></p>
     <p id="rules"></p>
     <p id="detail"></p>
+    <div id="dice" hidden><span id="face" aria-hidden="true">⚀</span><strong id="dice-result" role="status"></strong></div>
     <div id="board"></div>
     <button id="roll" hidden>🎲 Roll the dice</button>
     <button id="restart" hidden>Play again</button>
@@ -81,12 +96,96 @@
   let session = null;
   let busy = false;
   let lastBoard = '';
+  let lastRoll = null;
+  let animation = null;
+  let newest = null;
+  const squares = [[21,22,23,24,25],[20,19,18,17,16],[11,12,13,14,15],[10,9,8,7,6],[1,2,3,4,5]].flat();
+  const faces = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  function point(square) {
+    const index = squares.indexOf(square);
+    return [index % 5 * 20 + 10, Math.floor(index / 5) * 20 + 10];
+  }
+  function paths(jumps) {
+    const artwork = Object.entries(jumps).map(([from, to]) => {
+      const [x, y] = point(Number(from));
+      const [a, b] = point(to);
+      if (to > Number(from)) {
+        const length = Math.hypot(a - x, b - y);
+        return `<g transform="translate(${x} ${y}) rotate(${Math.atan2(b-y,a-x)*180/Math.PI})" stroke="#74421e" stroke-width="1.25" stroke-linecap="round">
+          <path d="M0 -2.5H${length}M0 2.5H${length}"/>
+          ${Array.from({length: Math.floor(length / 4)}, (_, i) => `<path d="M${i*4+2} -2.5v5"/>`).join('')}</g>`;
+      }
+      return `<g><path id="snake-${from}" d="M${a} ${b} C${a+12} ${b-9} ${x-12} ${y+9} ${x} ${y}" fill="none" stroke="#237956" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="${x}" cy="${y}" r="3" fill="#237956"/><circle cx="${x-1}" cy="${y-.7}" r=".55" fill="white"/><circle cx="${x+1}" cy="${y-.7}" r=".55" fill="white"/></g>`;
+    }).join('');
+    return `<svg class="paths" viewBox="0 0 100 100" aria-hidden="true">${artwork}</svg>`;
+  }
+  function place(piece, square, player) {
+    const [x, y] = point(square);
+    placeAt(piece, x, y, player);
+  }
+  function placeAt(piece, x, y, player) {
+    piece.style.left = (x + (player ? 2.5 : -2.5)) + '%';
+    piece.style.top = (y + 4) + '%';
+  }
+  async function animateRoll(roll, name) {
+    const run = {};
+    animation = run;
+    const face = byId('face');
+    byId('roll').disabled = true;
+    say('status', `${name} is rolling…`);
+    say('dice-result', 'Rolling…');
+    face.classList.add('spinning');
+    if (!reducedMotion.matches) {
+      for (let i = 0; i < 8; i++) {
+        say('face', faces[(roll.die + i) % 6]);
+        await pause(80);
+        if (animation !== run) return;
+      }
+    }
+    face.classList.remove('spinning');
+    say('face', faces[roll.die - 1]);
+    say('dice-result', `${name} rolled ${roll.die}`);
+    const piece = byId('piece-' + roll.player);
+    for (let square = roll.start + 1; square <= roll.landing; square++) {
+      place(piece, square, roll.player);
+      if (!reducedMotion.matches) await pause(185);
+      if (animation !== run) return;
+    }
+    if (roll.destination !== roll.landing) {
+      const snake = byId('snake-' + roll.landing);
+      if (snake && !reducedMotion.matches) {
+        const length = snake.getTotalLength();
+        for (let step = 1; step <= 7; step++) {
+          const point = snake.getPointAtLength(length * (1 - step / 7));
+          placeAt(piece, point.x, point.y, roll.player);
+          await pause(82);
+          if (animation !== run) return;
+        }
+      } else {
+        piece.classList.add('jump');
+        place(piece, roll.destination, roll.player);
+        if (!reducedMotion.matches) await pause(570);
+      }
+    }
+    if (animation !== run) return;
+    animation = null;
+    render(newest);
+  }
   function say(id, text) {
     const node = byId(id);
     if (node.textContent !== text) node.textContent = text;
   }
   function render(state) {
+    newest = state;
+    if (animation) return;
     const { game, code, player, turn, winner, ready, paused } = state;
+    const playerNames = state.names || ['Player 1', 'Player 2'];
+    const roll = state.roll;
+    const animate = game === 'snakes' && roll && roll.id !== lastRoll;
+    lastRoll = roll?.id ?? null;
     const active = ready && player === turn && winner === null && !paused;
     byId('lobby').hidden = true;
     byId('room').hidden = false;
@@ -94,22 +193,25 @@
     say('code', code);
     say('game-title', names[game]);
     say('rules', rules[game]);
-    const you = `You are ${icons[player]}`;
-    const turnText = active ? 'Your turn!' : 'Other player’s turn';
+    const you = `You are ${playerNames[player]} ${icons[player]}`;
+    const turnText = active ? 'Your turn!' : `${playerNames[turn]}’s turn`;
     const play = paused ? 'Try to remember those cards!' : turnText;
-    const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : 'The other player wins!';
+    const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : `${playerNames[winner]} wins!`;
     say('status', `${you}. ${!ready ? 'Share the room code with your other player.' : winner === null ? play : end}`);
-    say('detail', game === 'snakes' ? state.message : game === 'pairs' ?
-      `★ ${state.scores[0]} pairs · ♥ ${state.scores[1]} pairs` : '');
+    say('detail', game === 'snakes' ? (animate ? '' : state.message) : game === 'pairs' ?
+      `★ ${playerNames[0]}: ${state.scores[0]} · ♥ ${playerNames[1] || 'Player 2'}: ${state.scores[1]}` : '');
+    byId('dice').hidden = game !== 'snakes';
+    if (!roll) { say('face', faces[0]); say('dice-result', 'Ready to roll'); }
     byId('roll').hidden = game !== 'snakes';
     byId('roll').disabled = !active;
     byId('restart').hidden = player !== 0 || winner === null;
-    const key = JSON.stringify([game, active, state.grid, state.cards, state.positions, state.matched]);
+    const key = JSON.stringify([game, active, state.grid, state.cards, state.positions, state.matched, animate ? roll.id : null]);
     if (key === lastBoard) return;
     lastBoard = key;
     const board = byId('board');
     const focusedCell = document.activeElement?.dataset.cell;
     board.replaceChildren();
+    board.classList.toggle('snake-board', game === 'snakes');
     const columns = game === 'snakes' ? 5 : game === 'pairs' ? 4 : 7;
     board.style.gridTemplateColumns = `repeat(${columns}, minmax(0,1fr))`;
     function button(label, css, cell, disabled) {
@@ -123,18 +225,25 @@
       return node;
     }
     if (game === 'snakes') {
-      const rows = [[21,22,23,24,25],[20,19,18,17,16],[11,12,13,14,15],[10,9,8,7,6],[1,2,3,4,5]];
-      for (const square of rows.flat()) {
+      for (const square of squares) {
         const node = document.createElement('div');
         node.className = 'square';
         const jump = state.jumps[square];
-        node.textContent = jump ? `${square} ${jump > square ? '🪜' : '🐍'} ${jump}` : square;
-        const tokens = document.createElement('strong');
-        tokens.className = 'tokens';
-        tokens.textContent = icons.filter((_, i) => state.positions[i] === square).join('');
-        node.append(tokens);
+        node.textContent = square;
+        if (jump) node.setAttribute('aria-label', `Square ${square}, ${jump > square ? 'ladder' : 'snake'} to ${jump}`);
         board.append(node);
       }
+      board.insertAdjacentHTML('beforeend', paths(state.jumps));
+      state.positions.forEach((position, i) => {
+        const piece = document.createElement('span');
+        piece.id = 'piece-' + i;
+        piece.className = i ? 'piece heart' : 'piece';
+        piece.textContent = icons[i];
+        piece.setAttribute('aria-label', `${playerNames[i] || 'Player 2'}, square ${position}`);
+        place(piece, animate && roll.player === i ? roll.start : position, i);
+        board.append(piece);
+      });
+      if (animate) animateRoll(roll, playerNames[roll.player]);
     } else if (game === 'pairs') {
       state.cards.forEach((face, i) => {
         const matched = state.matched.includes(i);
@@ -163,7 +272,7 @@
     try {
       const response = await fetch('/room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...session, action, ...extra }), signal: AbortSignal.timeout(15000)
+        body: JSON.stringify({ ...session, action, name: byId('nickname').value, ...extra }), signal: AbortSignal.timeout(15000)
       });
       const state = await response.json();
       if (previous !== session) return;
@@ -187,6 +296,9 @@
   }
   function leave() {
     session = null;
+    animation = null;
+    lastRoll = null;
+    byId('face').classList.remove('spinning');
     lastBoard = '';
     sessionStorage.removeItem('gameRoom');
     byId('room').hidden = true;

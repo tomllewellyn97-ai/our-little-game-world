@@ -14,6 +14,7 @@ function newBoard(room) {
   room.winner = null;
   room.message = '';
   room.positions = [1, 1];
+  room.roll = null;
   room.grid = Array(42).fill(null);
   room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢'].flatMap(face => [face, face]);
   for (let i = room.cards.length - 1; i > 0; i--) {
@@ -39,12 +40,14 @@ function move(room, player, cell) {
     throw new Error('Wait for your turn.');
   }
   if (room.game === 'snakes') {
+    const start = room.positions[player];
     const die = randomInt(1, 7);
-    const landing = Math.min(25, room.positions[player] + die);
+    const landing = Math.min(25, start + die);
     const destination = jumps[landing] ?? landing;
     room.positions[player] = destination;
     const jump = destination > landing ? ' Up a ladder!' : destination < landing ? ' Down a snake!' : '';
-    room.message = `Player ${player + 1} rolled ${die}.${jump}`;
+    room.message = `${room.names[player]} rolled ${die}.${jump}`;
+    room.roll = { id: randomBytes(8).toString('hex'), player, die, start, landing, destination };
     if (destination === 25) room.winner = player;
   }
   if (room.game === 'connect') {
@@ -95,7 +98,8 @@ function reply(res, status, value) {
 }
 
 function handle(data) {
-  const { action, code, token, game, cell } = data;
+  const { action, code, token, game, cell, name } = data;
+  const nickname = typeof name === 'string' ? name.trim().slice(0, 20) : '';
   const now = Date.now();
   for (const [key, room] of rooms) if (now - room.touched > expiry) rooms.delete(key);
   let room;
@@ -105,7 +109,7 @@ function handle(data) {
     if (!games.includes(game)) throw new Error('Pick a game.');
     let key;
     do { key = randomBytes(5).toString('hex').toUpperCase(); } while (rooms.has(key));
-    room = { code: key, game, players: [randomBytes(24).toString('hex')] };
+    room = { code: key, game, players: [randomBytes(24).toString('hex')], names: [nickname || 'Player 1'] };
     newBoard(room);
     rooms.set(key, room);
     player = 0;
@@ -115,6 +119,7 @@ function handle(data) {
     if (action === 'join') {
       if (room.players.length === 2) throw new Error('This room already has two players.');
       player = room.players.push(randomBytes(24).toString('hex')) - 1;
+      room.names.push(nickname || 'Player 2');
     } else {
       player = room.players.indexOf(token);
       if (player < 0) throw new Error('Please join the room first.');
@@ -131,6 +136,7 @@ function handle(data) {
     code: room.code, token: room.players[player], player, game: room.game,
     ready: room.players.length === 2, turn: room.turn, winner: room.winner,
     positions: room.positions, jumps, message: room.message, grid: room.grid,
+    names: room.names, roll: room.roll,
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
     matched: room.matched
