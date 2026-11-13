@@ -114,6 +114,8 @@
   const icons = ['★', '♥'];
   let session = null;
   let busy = false;
+  let pendingMove = false;
+  let queuedMove = null;
   let lastBoard = '';
   let lastRoll = null;
   let animation = null;
@@ -261,7 +263,15 @@
       node.textContent = label;
       node.dataset.cell = cell;
       node.disabled = disabled;
-      node.onclick = () => request('move', { cell });
+      node.onclick = () => {
+        if (pendingMove) return;
+        if (game === 'pairs') {
+          node.textContent = '…';
+          node.setAttribute('aria-label', 'Flipping card');
+          lastBoard = '';
+        }
+        request('move', { cell });
+      };
       board.append(node);
       return node;
     }
@@ -310,8 +320,15 @@
     if (focusedCell !== undefined) board.querySelector(`[data-cell="${focusedCell}"]:enabled`)?.focus();
   }
   async function request(action, extra = {}) {
-    if (busy) return;
+    if (busy) {
+      if (action === 'move' && !pendingMove) {
+        pendingMove = true;
+        queuedMove = { extra, session };
+      }
+      return;
+    }
     busy = true;
+    if (action === 'move') pendingMove = true;
     const previous = session;
     try {
       const response = await fetch('/room', {
@@ -329,13 +346,20 @@
         session = { code: state.code, token: state.token };
         sessionStorage.setItem('gameRoom', JSON.stringify(session));
       }
-      render(state);
+      if (!queuedMove) render(state);
       if (action === 'create' || action === 'join') byId('game-title').focus();
       if (action !== 'state' || byId('error').textContent.startsWith('Connection')) say('error', '');
     } catch {
       if (previous === session) say('error', 'Connection interrupted. Check your internet and try again.');
     } finally {
       busy = false;
+      if (action === 'move') pendingMove = false;
+      const next = queuedMove;
+      queuedMove = null;
+      if (next) {
+        pendingMove = false;
+        if (session && session === next.session) request('move', next.extra);
+      }
     }
   }
   function leave() {
