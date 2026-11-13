@@ -46,6 +46,8 @@
   .piece.heart { background: #ffd0e1; }
   .piece.jump { transition-duration: .55s; }
   #dice { display: flex; flex-wrap: wrap; gap: .85rem; align-items: center; margin: .75rem 0; }
+  #status { margin: .75rem 0; padding: .65rem 1rem; border: 2px solid #6240b1; border-radius: 1rem; background: #eee5ff; color: #282344; text-align: center; font-size: clamp(1.25rem, 5vw, 2rem); font-weight: 800; overflow-wrap: anywhere; }
+  #status[data-turn="yours"] { background: #c5edb5; border-color: #315740; }
   .die-stage { width: 3rem; height: 3rem; perspective: 13rem; }
   #cube { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
   .die-side { position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: .35rem; border: 2px solid #282344; border-radius: .6rem; background: #fff; backface-visibility: hidden; box-shadow: inset 0 0 .4rem #ddd2f5; }
@@ -141,12 +143,12 @@
     </form>
     <div id="current-game" hidden>
     <h2 id="game-title" tabindex="-1"></h2>
+    <p id="status" role="status" aria-atomic="true"></p>
     <p id="rules"></p>
     <p id="detail"></p>
     <div id="dice">
       <div id="die-stage" class="die-stage" aria-hidden="true" hidden><div id="cube"></div></div>
       <div>
-        <p id="status" role="status"></p>
         <strong id="dice-result" role="status" hidden></strong>
       </div>
       <button id="roll" hidden>Roll the dice</button>
@@ -260,6 +262,7 @@
     byId('roll').disabled = true;
     byId('roll').hidden = true;
     say('status', `${name} is rolling…`);
+    byId('status').dataset.turn = '';
     say('dice-result', 'Rolling…');
     const [x,y] = angles[roll.die - 1];
     const landed = rotation(x,y);
@@ -343,12 +346,12 @@
     say('game-title', names[game]);
     const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long' };
     say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${rules.snakes} Reach ${size ** 2} to win!` : rules[game]);
-    const you = `You are ${playerNames[player]} ${game === 'snakes' ? pieces[player] : icons[player]}`;
-    const turnText = active ? 'Your turn!' : `${playerNames[turn]}’s turn`;
-    const play = paused ? 'Try to remember those cards!' : turnText;
+    const turnText = active ? `Your turn, ${playerNames[player]}!` : `${playerNames[turn]}’s turn`;
+    const play = paused ? 'Remember those cards…' : turnText;
     const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : `${playerNames[winner]} wins!`;
-    const status = !ready ? 'Waiting for more players. Share the lobby code to invite them.' : winner === null ? play : end;
-    say('status', game === 'snakes' && active ? `Your turn, ${playerNames[player]}!` : `${status} ${you}.`);
+    const status = !ready ? 'Waiting for players…' : winner === null ? play : end;
+    say('status', status);
+    byId('status').dataset.turn = active ? 'yours' : '';
     say('detail', game === 'snakes' ? (animate ? '' : state.message) : game === 'pairs' ?
       playerNames.map((name, i) => `${pieces[i]} ${name}: ${state.scores[i]}`).join(' · ') : '');
     byId('die-stage').hidden = game !== 'snakes';
