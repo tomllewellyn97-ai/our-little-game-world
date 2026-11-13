@@ -163,9 +163,10 @@ function handle(data) {
     }
     room.pieces[player] = piece;
   }
-  if (action === 'switch') {
-    if (player !== 0 || !games.includes(game)) throw new Error('Only the host can choose the game.');
-    room.game = game;
+  if (action === 'switch' || action === 'lobby') {
+    if (player !== 0) throw new Error('Only the host can choose the game.');
+    if (action === 'switch' && !games.includes(game)) throw new Error('Pick a game.');
+    room.game = action === 'lobby' ? null : game;
     room.pace = Object.hasOwn(boards, pace) ? pace : 'classic';
     room.theme = themes.includes(theme) ? theme : 'classic';
     newBoard(room);
@@ -205,7 +206,7 @@ const server = http.createServer(async (req, res) => {
       if (body.length > 2048) return reply(res, 413, { error: 'Request is too large.' });
     }
     const data = JSON.parse(body);
-    if (!['create', 'join', 'state', 'move', 'restart', 'switch', 'exit', 'piece'].includes(data?.action)) {
+    if (!['create', 'join', 'state', 'move', 'restart', 'switch', 'lobby', 'exit', 'piece'].includes(data?.action)) {
       throw new Error('Choose a room action.');
     }
     reply(res, 200, handle(data));

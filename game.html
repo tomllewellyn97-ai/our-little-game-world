@@ -103,7 +103,7 @@
     <p id="lobby-status" role="status"></p>
     <button id="customize" aria-controls="lobby-pieces" aria-expanded="false">Choose my piece</button>
     <div id="lobby-pieces" class="piece-picker" role="group" aria-label="Choose your playing piece" hidden></div>
-    <button id="choose" hidden aria-expanded="false" aria-controls="game-menu">Change game</button>
+    <button id="choose" hidden>Change game</button>
     <div id="game-menu" hidden>
     <div class="tiles">
       <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2>
@@ -193,7 +193,6 @@
   let newest = null;
   let setupPage = location.pathname === '/snakes-setup';
   let currentRound = null;
-  let menuOpen = false;
   let playerCount = 2;
   let size = 5;
   let diceMotion;
@@ -326,8 +325,7 @@
     say('lobby-status', !game ? (player === 0 ? 'Pick a game to play.' : 'Waiting for the host to pick a game.') :
       watching ? 'You’re watching this two-player game. Everyone can play Snakes & Ladders.' : '');
     byId('choose').hidden = player !== 0 || !game;
-    byId('choose').setAttribute('aria-expanded', String(menuOpen));
-    byId('game-menu').hidden = player !== 0 || Boolean(game && !menuOpen);
+    byId('game-menu').hidden = player !== 0 || Boolean(game);
     byId('current-game').hidden = !game;
     showSetup();
     if (!game) return;
@@ -424,7 +422,7 @@
   async function request(action, extra = {}) {
     const round = currentRound;
     if (busy) {
-      if (['move', 'switch', 'restart', 'exit', 'piece'].includes(action) && !pendingMove) {
+      if (['move', 'switch', 'lobby', 'restart', 'exit', 'piece'].includes(action) && !pendingMove) {
         pendingMove = true;
         queuedMove = { action, extra: { round, ...extra }, session };
       }
@@ -446,13 +444,13 @@
         return;
       }
       if (action === 'exit') { leave(); return; }
-      if (action === 'switch') { menuOpen = false; closeSetup(false); }
+      if (action === 'switch') closeSetup(false);
       if (!session) {
         session = { code: state.code, token: state.token };
         sessionStorage.setItem('gameRoom', JSON.stringify(session));
       }
       if (!queuedMove) render(state);
-      if (action === 'create' || action === 'join') byId('lobby-title').focus();
+      if (action === 'create' || action === 'join' || action === 'lobby') byId('lobby-title').focus();
       if (action === 'switch') byId('game-title').focus();
       if (action !== 'state' || byId('error').textContent.startsWith('Connection')) say('error', '');
     } catch {
@@ -474,7 +472,6 @@
     lastRoll = null;
     currentRound = null;
     newest = null;
-    menuOpen = false;
     closeSetup();
     diceMotion?.cancel();
     lastBoard = '';
@@ -541,11 +538,7 @@
     request('join', { code: byId('invite').value.trim(), piece: entryPiece });
   };
   byId('leave').onclick = () => request('exit');
-  byId('choose').onclick = () => {
-    menuOpen = !menuOpen;
-    byId('game-menu').hidden = !menuOpen;
-    byId('choose').setAttribute('aria-expanded', String(menuOpen));
-  };
+  byId('choose').onclick = () => request('lobby');
   byId('roll').onclick = () => request('move');
   byId('restart').onclick = () => newest.game === 'snakes' ? openSetup() : request('restart');
   session = JSON.parse(sessionStorage.getItem('gameRoom') || 'null');
