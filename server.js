@@ -12,6 +12,7 @@ const boards = {
 };
 const games = ['snakes', 'pairs', 'connect'];
 const themes = ['classic', 'jungle', 'space', 'ocean'];
+const pairCounts = { quick: 4, classic: 6, long: 10 };
 const pieces = ['★', '♥', '◆', '🐱', '🐶', '🦊', '🐸', '🦄', '🚀', '🐢', '🐙', '🦋'];
 function availablePiece(room, choice) {
   const available = pieces.filter(piece => !room.pieces.includes(piece));
@@ -27,14 +28,15 @@ function newBoard(room) {
   room.round = randomBytes(8).toString('hex');
   room.roll = null;
   room.grid = Array(42).fill(null);
-  room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢'].flatMap(face => [face, face]);
+  room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢', '🦊', '🐙', '🦄', '🐼']
+    .slice(0, pairCounts[room.pace]).flatMap(face => [face, face]);
   for (let i = room.cards.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
     [room.cards[i], room.cards[j]] = [room.cards[j], room.cards[i]];
   }
   room.open = [];
   room.matched = [];
-  room.scores = [0, 0];
+  room.scores = Array(room.capacity).fill(0);
   room.hideAt = 0;
 }
 
@@ -42,12 +44,12 @@ function settle(room) {
   if (room.hideAt && Date.now() >= room.hideAt) {
     room.open = [];
     room.hideAt = 0;
-    room.turn = 1 - room.turn;
+    room.turn = (room.turn + 1) % room.capacity;
   }
 }
 
 function move(room, player, cell) {
-  const seats = room.game === 'snakes' ? room.capacity : 2;
+  const seats = room.game === 'connect' ? 2 : room.capacity;
   if (!room.game || room.players.length < seats || room.turn !== player || room.winner !== null || room.hideAt) {
     throw new Error('Wait for your turn.');
   }
@@ -96,7 +98,9 @@ function move(room, player, cell) {
       room.open = [];
       room.scores[player]++;
       if (room.matched.length === room.cards.length) {
-        room.winner = room.scores[0] === room.scores[1] ? 'draw' : Number(room.scores[1] > room.scores[0]);
+        const best = Math.max(...room.scores);
+        const winners = room.scores.map((score, i) => score === best ? i : -1).filter(i => i >= 0);
+        room.winner = winners.length === 1 ? winners[0] : 'draw';
       }
     } else {
       room.hideAt = Date.now() + 1800;
@@ -150,7 +154,7 @@ function handle(data) {
       room.players.splice(player, 1);
       room.names.splice(player, 1);
       room.pieces.splice(player, 1);
-      if (room.game === 'snakes' || player === 1) {
+      if (room.game !== 'connect' || player === 1) {
         room.game = null;
         newBoard(room);
       }
@@ -182,7 +186,7 @@ function handle(data) {
   room.touched = now;
   return {
     code: room.code, token: room.players[player], player, game: room.game,
-    ready: Boolean(room.game) && room.players.length >= (room.game === 'snakes' ? room.capacity : 2),
+    ready: Boolean(room.game) && room.players.length >= (room.game === 'connect' ? 2 : room.capacity),
     capacity: room.capacity, round: room.round, turn: room.turn, winner: room.winner,
     positions: room.positions, ...boards[room.pace], pace: room.pace, message: room.message, grid: room.grid,
     names: room.names, roll: room.roll, theme: room.theme, pieces: room.pieces, choices: pieces,

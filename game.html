@@ -109,7 +109,13 @@
       <div class="tile green"><span aria-hidden="true">🐍 🪜</span><h2>Snakes &amp; Ladders</h2>
         <div><button data-game="snakes">Set up Snakes &amp; Ladders</button></div>
       </div>
-      <div class="tile gold"><span aria-hidden="true">🐱 🐱</span><h2>Matching Pairs</h2><button data-game="pairs">Start Matching Pairs</button></div>
+      <div class="tile gold"><span aria-hidden="true">🐱 🐱</span><h2>Matching Pairs</h2>
+        <label for="pairs-pace">Game length</label>
+        <div class="pace-picker"><select class="pace" id="pairs-pace">
+          <option value="quick">Quick · 8 cards</option><option value="classic" selected>Classic · 12 cards</option><option value="long">Long · 20 cards</option>
+        </select></div>
+        <button data-game="pairs">Start Matching Pairs</button>
+      </div>
       <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
       <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><p>Coming soon</p></div>
     </div>
@@ -321,9 +327,9 @@
     for (const id of ['lobby-pieces', 'setup-pieces']) {
       piecePicker(id, pieces[player], pieces.filter((_, i) => i !== player), piece => request('piece', { piece }));
     }
-    const watching = Boolean(game && game !== 'snakes' && player === 2);
+    const watching = game === 'connect' && player === 2;
     say('lobby-status', !game ? (player === 0 ? 'Pick a game to play.' : 'Waiting for the host to pick a game.') :
-      watching ? 'You’re watching this two-player game. Everyone can play Snakes & Ladders.' : '');
+      watching ? 'You’re watching this two-player game. Everyone can play Snakes & Ladders or Matching Pairs.' : '');
     byId('choose').hidden = player !== 0 || !game;
     byId('game-menu').hidden = player !== 0 || Boolean(game);
     byId('current-game').hidden = !game;
@@ -339,7 +345,7 @@
     const status = !ready ? 'Waiting for more players. Share the lobby code to invite them.' : winner === null ? play : end;
     say('status', game === 'snakes' && active ? `Your turn, ${playerNames[player]}!` : `${status} ${you}.`);
     say('detail', game === 'snakes' ? (animate ? '' : state.message) : game === 'pairs' ?
-      `★ ${playerNames[0]}: ${state.scores[0]} · ♥ ${playerNames[1] || 'Player 2'}: ${state.scores[1]}` : '');
+      playerNames.map((name, i) => `${pieces[i]} ${name}: ${state.scores[i]}`).join(' · ') : '');
     byId('die-stage').hidden = game !== 'snakes';
     byId('dice-result').hidden = game !== 'snakes';
     if (!roll) { cube.style.transform = rotation(0,0); say('dice-result', 'Ready to roll'); }
@@ -485,7 +491,8 @@
     byId('nickname').focus();
   }
   document.querySelectorAll('[data-game]').forEach(node => {
-    node.onclick = () => node.dataset.game === 'snakes' ? openSetup() : request('switch', { game: node.dataset.game });
+    node.onclick = () => node.dataset.game === 'snakes' ? openSetup() :
+      request('switch', { game: node.dataset.game, pace: byId('pairs-pace').value });
   });
   function openSetup() {
     byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';
