@@ -80,7 +80,7 @@
   <div id="lobby">
     <label for="nickname">Your player name</label>
     <input id="nickname" maxlength="20" placeholder="Pick a nickname" style="text-transform:none">
-    <p id="entry-piece-label"><strong>Your playing piece</strong></p>
+    <p id="entry-piece-label"><strong>Pick your playing piece before you create or join a lobby</strong></p>
     <div id="entry-pieces" class="piece-picker" role="group" aria-labelledby="entry-piece-label"></div>
     <form id="create">
       <label for="capacity">Players in your lobby</label>
@@ -189,6 +189,7 @@
   let lastRoll = null;
   let animation = null;
   let newest = null;
+  let setupPage = location.pathname === '/snakes-setup';
   let currentRound = null;
   let menuOpen = false;
   let playerCount = 2;
@@ -325,6 +326,7 @@
     byId('choose').setAttribute('aria-expanded', String(menuOpen));
     byId('game-menu').hidden = player !== 0 || Boolean(game && !menuOpen);
     byId('current-game').hidden = !game;
+    showSetup();
     if (!game) return;
     say('game-title', names[game]);
     const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long' };
@@ -438,7 +440,7 @@
         return;
       }
       if (action === 'exit') { leave(); return; }
-      if (action === 'switch') { menuOpen = false; byId('setup').hidden = true; }
+      if (action === 'switch') { menuOpen = false; closeSetup(false); }
       if (!session) {
         session = { code: state.code, token: state.token };
         sessionStorage.setItem('gameRoom', JSON.stringify(session));
@@ -467,6 +469,7 @@
     currentRound = null;
     newest = null;
     menuOpen = false;
+    closeSetup();
     diceMotion?.cancel();
     lastBoard = '';
     sessionStorage.removeItem('gameRoom');
@@ -484,14 +487,40 @@
   function openSetup() {
     byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';
     byId('theme').value = newest.game === 'snakes' ? newest.theme : 'classic';
-    byId('setup').hidden = false;
+    setupPage = true;
+    history.pushState(null, '', '/snakes-setup');
+    showSetup();
     byId('pace').focus();
   }
+  function showSetup() {
+    const visible = setupPage && newest?.player === 0;
+    byId('setup').hidden = !visible;
+    byId('customize').hidden = visible;
+    if (visible) {
+      byId('lobby-pieces').hidden = true;
+      byId('customize').setAttribute('aria-expanded', 'false');
+    }
+    if (visible) {
+      byId('game-menu').hidden = true;
+      byId('current-game').hidden = true;
+      byId('choose').hidden = true;
+    }
+  }
+  function closeSetup(redraw = true) {
+    if (!setupPage) return;
+    setupPage = false;
+    history.replaceState(null, '', '/');
+    if (redraw && newest) render(newest);
+  }
+  window.addEventListener('popstate', () => {
+    setupPage = location.pathname === '/snakes-setup';
+    if (newest) render(newest);
+  });
   byId('setup').onsubmit = event => {
     event.preventDefault();
     request('switch', { game: 'snakes', pace: byId('pace').value, theme: byId('theme').value });
   };
-  byId('cancel-setup').onclick = () => { byId('setup').hidden = true; };
+  byId('cancel-setup').onclick = () => closeSetup();
   byId('customize').onclick = () => {
     const picker = byId('lobby-pieces');
     picker.hidden = !picker.hidden;
