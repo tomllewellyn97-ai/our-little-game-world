@@ -131,13 +131,15 @@
     </form>
     <div id="current-game" hidden>
     <h2 id="game-title" tabindex="-1"></h2>
-    <p id="status" role="status"></p>
     <p id="rules"></p>
     <p id="detail"></p>
-    <div id="dice" hidden>
-      <button id="roll">Roll the dice</button>
-      <div class="die-stage" aria-hidden="true"><div id="cube"></div></div>
-      <strong id="dice-result" role="status"></strong>
+    <div id="dice">
+      <div id="die-stage" class="die-stage" aria-hidden="true" hidden><div id="cube"></div></div>
+      <div>
+        <p id="status" role="status"></p>
+        <strong id="dice-result" role="status" hidden></strong>
+      </div>
+      <button id="roll" hidden>Roll the dice</button>
     </div>
     <div id="board"></div>
     <button id="restart" hidden>Play again</button>
@@ -246,6 +248,7 @@
     const run = {};
     animation = run;
     byId('roll').disabled = true;
+    byId('roll').hidden = true;
     say('status', `${name} is rolling…`);
     say('dice-result', 'Rolling…');
     const [x,y] = angles[roll.die - 1];
@@ -335,12 +338,15 @@
     const turnText = active ? 'Your turn!' : `${playerNames[turn]}’s turn`;
     const play = paused ? 'Try to remember those cards!' : turnText;
     const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : `${playerNames[winner]} wins!`;
-    say('status', `${you}. ${!ready ? 'Waiting for more players. Share the lobby code to invite them.' : winner === null ? play : end}`);
+    const status = !ready ? 'Waiting for more players. Share the lobby code to invite them.' : winner === null ? play : end;
+    say('status', game === 'snakes' && active ? `Your turn, ${playerNames[player]}!` : `${status} ${you}.`);
     say('detail', game === 'snakes' ? (animate ? '' : state.message) : game === 'pairs' ?
       `★ ${playerNames[0]}: ${state.scores[0]} · ♥ ${playerNames[1] || 'Player 2'}: ${state.scores[1]}` : '');
-    byId('dice').hidden = game !== 'snakes';
+    byId('die-stage').hidden = game !== 'snakes';
+    byId('dice-result').hidden = game !== 'snakes';
     if (!roll) { cube.style.transform = rotation(0,0); say('dice-result', 'Ready to roll'); }
     byId('roll').disabled = !active;
+    byId('roll').hidden = game !== 'snakes' || !active;
     byId('restart').hidden = player !== 0 || winner === null;
     const key = JSON.stringify([game, size, state.theme, pieces, active, state.grid, state.cards, state.positions, state.matched, animate ? roll.id : null]);
     if (key === lastBoard) return;
