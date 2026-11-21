@@ -80,6 +80,17 @@
   .snake-board[data-theme="ocean"] { --square-a: #bceee9; --square-b: #c9e1ff; --snake: #086e83; --ladder: #87431e; }
   .snake-board .square { background: var(--square-a, #f2e4ff); }
   .snake-board .square:nth-child(even) { background: var(--square-b, #e1f4d3); }
+  #board.snake-board { max-width: 38rem; }
+  .snake-board .square:nth-child(even) { background: var(--square-a, #f2e4ff); }
+  .snake-board .square.alternate { background: var(--square-b, #e1f4d3); }
+  .square-number { position: relative; z-index: 1; display: inline-block; padding: 0 .12em; border-radius: .2em; background: #ffffffd9; color: #282344; line-height: 1.15; }
+  .snake-board[data-theme="space"] { --square-a: #232446; --square-b: #343357; border-color: #534a8c; }
+  .snake-board[data-theme="space"] .square { background-image: radial-gradient(circle at 70% 60%, #c9c3ff 0 1px, transparent 1.5px); }
+  .snake-board[data-theme="ocean"] .square { background-image: radial-gradient(ellipse at 75% 70%, #ffffff80 0 12%, transparent 14%); }
+  .snake-board[data-theme="jungle"] .square { background-image: radial-gradient(ellipse at 70% 65%, #387a2820 0 18%, transparent 20%); }
+  .snake-board.large .square { padding: .15rem; font-size: clamp(.6rem, 2.5vw, .9rem); }
+  .snake-board.large .piece { width: calc(46% / var(--board-size)); font-size: clamp(.6rem, 2.8vw, 1.2rem); }
+  .snake-board.large .piece.three { width: calc(33% / var(--board-size)); font-size: clamp(.5rem, 2vw, .9rem); }
   .piece.diamond { background: #ffe190; }
   .piece.three { width: 5%; min-width: 0; font-size: clamp(.55rem, 2.5vw, 1rem); }
   @media (forced-colors: active) { .pace { appearance: auto; } .pace-picker::after { display: none; } }
@@ -139,12 +150,14 @@
       <div id="snakes-options">
       <label for="pace">Board size</label>
       <div class="pace-picker"><select class="pace" id="pace">
-        <option value="quick">Quick · 16 squares</option><option value="classic">Classic · 25 squares</option><option value="long">Long · 49 squares</option>
+        <option value="quick">Quick · 16 squares</option><option value="classic">Classic · 25 squares</option><option value="long">Long · 49 squares</option><option value="adventure">Adventure · 100 squares</option>
       </select></div>
       <label for="theme">Board theme</label>
       <div class="pace-picker"><select class="pace" id="theme">
         <option value="classic">🌈 Classic</option><option value="jungle">🌿 Jungle</option><option value="space">🪐 Space</option><option value="ocean">🌊 Ocean</option>
       </select></div>
+      <p id="theme-preview"></p>
+      <p>Boosts and setbacks move to new squares every round. Everyone plays on the same board.</p>
       <p id="setup-piece-label"><strong>Your playing piece</strong></p>
       <div id="setup-pieces" class="piece-picker" role="group" aria-labelledby="setup-piece-label"></div>
       </div>
@@ -277,6 +290,12 @@
     connect: 'Drop a piece into a column. Get four in a row to win!'
   };
   const icons = ['★', '♥', '◆'];
+  const adventures = {
+    classic: { up: 'ladder', down: 'snake', guide: '🪜 Climb ladders. 🐍 Slide down snakes.' },
+    jungle: { up: 'vine', down: 'jungle snake', guide: '🌿 Climb jungle vines. 🐍 Watch for slippery snakes!' },
+    space: { up: 'rocket boost', down: 'black hole', guide: '🚀 Rockets boost you forward. 🌀 Black holes pull you back!' },
+    ocean: { up: 'bubble stream', down: 'whirlpool', guide: '🫧 Bubble streams lift you ahead. 🌀 Whirlpools sweep you back!' }
+  };
   const pieceLabels = {'★':'Star','♥':'Heart','◆':'Diamond','🐱':'Cat','🐶':'Dog','🦊':'Fox','🐸':'Frog','🦄':'Unicorn','🚀':'Rocket','🐢':'Turtle','🐙':'Octopus','🦋':'Butterfly'};
   let entryPiece = '';
   function piecePicker(id, chosen, taken, choose) {
@@ -341,18 +360,52 @@
     const col = row % 2 ? size - 1 - offset : offset;
     return [(col + .5) * 100 / size, (size - row - .5) * 100 / size];
   }
-  function paths(jumps) {
+  function paths(jumps, theme) {
+    const scale = 5 / size;
     const artwork = Object.entries(jumps).map(([from, to]) => {
       const [x, y] = point(Number(from));
       const [a, b] = point(to);
-      if (to > Number(from)) {
-        const length = Math.hypot(a - x, b - y);
-        return `<g transform="translate(${x} ${y}) rotate(${Math.atan2(b-y,a-x)*180/Math.PI})" style="stroke:var(--ladder,#74421e)" stroke-width="1.25" stroke-linecap="round">
-          <path d="M0 -2.5H${length}M0 2.5H${length}"/>
-          ${Array.from({length: Math.floor(length / 4)}, (_, i) => `<path d="M${i*4+2} -2.5v5"/>`).join('')}</g>`;
+      const up = to > Number(from);
+      const angle = Math.atan2(b-y,a-x)*180/Math.PI;
+      const length = Math.hypot(a - x, b - y);
+      const line = `M${x} ${y}L${a} ${b}`;
+      const curve = `M${x} ${y}C${x-10*scale} ${y+8*scale} ${a+10*scale} ${b-8*scale} ${a} ${b}`;
+      const route = `<path id="journey-${from}" d="${up ? line : curve}" fill="none" stroke="transparent"/>`;
+      const arrow = `<g transform="translate(${a} ${b}) rotate(${angle}) scale(${scale})"><path d="M-3 -2L0 0L-3 2" fill="none" stroke="white" stroke-width="1.1"/></g>`;
+      if (theme === 'space') {
+        if (up) {
+          return route + `<path d="${line}" stroke="#ffd26e" stroke-width="${1.5*scale}" stroke-dasharray="${2*scale} ${scale}"/>${arrow}
+            <g transform="translate(${x} ${y}) rotate(${angle+90}) scale(${scale})">
+              <path d="M-1 2L0 7L1 2" fill="#ff9b45"/><path d="M-1.7 1L-3 4L0 3L3 4L1.7 1" fill="#f584b1"/>
+              <path d="M0 -5Q-3 -2 -1.8 3H1.8Q3 -2 0 -5" fill="#fff3e8" stroke="#8b78c4" stroke-width=".5"/><circle cy="-1" r="1" fill="#79deff"/>
+            </g>`;
+        }
+        return route + `<path d="${curve}" fill="none" stroke="#c39cff" stroke-width="${1.7*scale}" stroke-dasharray="${scale} ${scale}"/>${arrow}
+          <g transform="translate(${x} ${y}) scale(${scale})"><ellipse rx="4.3" ry="2.3" fill="#24123e" stroke="#f9a7e2" stroke-width=".8" transform="rotate(-25)"/><circle r="2.1" fill="#100f27" stroke="#bf8bfa" stroke-width=".7"/></g>`;
       }
-      return `<g><path id="snake-${from}" d="M${a} ${b} C${a+12} ${b-9} ${x-12} ${y+9} ${x} ${y}" fill="none" style="stroke:var(--snake,#237956)" stroke-width="3" stroke-linecap="round"/>
-        <circle cx="${x}" cy="${y}" r="3" style="fill:var(--snake,#237956)"/><circle cx="${x-1}" cy="${y-.7}" r=".55" fill="white"/><circle cx="${x+1}" cy="${y-.7}" r=".55" fill="white"/></g>`;
+      if (theme === 'ocean') {
+        const colour = up ? '#057892' : '#6650af';
+        const bubbles = up ? Array.from({length: Math.ceil(length/(4*scale))}, (_, i) => {
+          const t = i / Math.ceil(length/(4*scale));
+          return `<circle cx="${x+(a-x)*t}" cy="${y+(b-y)*t}" r="${1.1*scale}" fill="#eaffff" stroke="#057892" stroke-width="${.5*scale}"/>`;
+        }).join('') : '';
+        return route + `<path d="${up ? line : curve}" fill="none" stroke="${colour}" stroke-width="${2*scale}" opacity=".7"/>${bubbles}${arrow}` +
+          (up ? '' : `<g transform="translate(${x} ${y}) scale(${scale})"><circle r="3.4" fill="#d3f5ff" stroke="#6650af" stroke-width=".5"/><path d="M-2 1C-4 -3 3 -4 2 0S-2 2 -1 0S1 -1 0 0" fill="none" stroke="#6650af" stroke-width="1"/></g>`);
+      }
+      if (up && theme === 'jungle') {
+        const leaves = Array.from({length: Math.floor(length/(5*scale))}, (_, i) => {
+          const t = (i+1)/(Math.floor(length/(5*scale))+1);
+          return `<g transform="translate(${x+(a-x)*t} ${y+(b-y)*t}) rotate(${angle}) scale(${scale})"><path d="M0 0Q-5 -5 0 -5Q4 -3 0 0M0 0Q5 5 0 5Q-4 3 0 0" fill="#348344" stroke="#164b28" stroke-width=".4"/></g>`;
+        }).join('');
+        return route + `<path d="${line}" stroke="#536b2b" stroke-width="${1.2*scale}"/>${leaves}${arrow}`;
+      }
+      if (up) {
+        return route + `<g transform="translate(${x} ${y}) rotate(${angle})" stroke="#74421e" stroke-width="${scale}" stroke-linecap="round">
+          <path d="M0 ${-2*scale}H${length}M0 ${2*scale}H${length}"/>
+          ${Array.from({length: Math.floor(length/(3.5*scale))}, (_, i) => `<path d="M${(i*3.5+1.5)*scale} ${-2*scale}v${4*scale}"/>`).join('')}</g>`;
+      }
+      return route + `<path d="${curve}" fill="none" stroke="#237956" stroke-width="${3*scale}" stroke-linecap="round"/>
+        <g transform="translate(${x} ${y}) scale(${scale})"><circle r="2.7" fill="#237956"/><circle cx="-1" cy="-.7" r=".55" fill="white"/><circle cx="1" cy="-.7" r=".55" fill="white"/></g>`;
     }).join('');
     return `<svg class="paths" viewBox="0 0 100 100" aria-hidden="true">${artwork}</svg>`;
   }
@@ -395,11 +448,11 @@
       if (animation !== run) return;
     }
     if (roll.destination !== roll.landing) {
-      const snake = byId('snake-' + roll.landing);
+      const snake = byId('journey-' + roll.landing);
       if (snake && !reducedMotion.matches) {
         const length = snake.getTotalLength();
         for (let step = 1; step <= 7; step++) {
-          const point = snake.getPointAtLength(length * (1 - step / 7));
+          const point = snake.getPointAtLength(length * step / 7);
           placeAt(piece, point.x, point.y, roll.player);
           await pause(82);
           if (animation !== run) return;
@@ -468,8 +521,9 @@
       }
       return;
     }
-    const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long' };
-    say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${rules.snakes} Reach ${size ** 2} to win!` : rules[game]);
+    const paceLabel = { quick: 'Quick', classic: 'Classic', long: 'Long', adventure: 'Adventure' };
+    const adventure = adventures[state.theme] || adventures.classic;
+    say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${adventure.guide} Reach ${size ** 2} to win!` : rules[game]);
     const turnText = active ? `Your turn, ${playerNames[player]}!` : `${playerNames[turn]}’s turn`;
     const play = paused ? 'Remember those cards…' : turnText;
     const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : `${playerNames[winner]} wins!`;
@@ -498,7 +552,7 @@
     byId('roll').disabled = !active;
     byId('roll').hidden = game !== 'snakes' || !active;
     byId('restart').hidden = player !== 0 || winner === null;
-    const key = JSON.stringify([game, size, state.theme, pieces, active, state.grid, state.cards, state.positions, state.matched, state.cardOwners, animate ? roll.id : null]);
+    const key = JSON.stringify([game, size, state.theme, state.jumps, pieces, active, state.grid, state.cards, state.positions, state.matched, state.cardOwners, animate ? roll.id : null]);
     if (key === lastBoard) return;
     lastBoard = key;
     const board = byId('board');
@@ -506,7 +560,8 @@
     board.replaceChildren();
     board.classList.toggle('snake-board', game === 'snakes');
     board.dataset.theme = state.theme;
-    board.classList.toggle('large', size === 7);
+    board.classList.toggle('large', size >= 7);
+    board.style.setProperty('--board-size', size);
     const columns = game === 'snakes' ? size : game === 'pairs' ? 4 : 7;
     board.style.gridTemplateColumns = `repeat(${columns}, minmax(0,1fr))`;
     function button(label, css, cell, disabled) {
@@ -533,13 +588,16 @@
         const col = i % size;
         const square = row * size + (row % 2 ? size - col : col + 1);
         const node = document.createElement('div');
-        node.className = 'square';
+        node.className = (row+col)%2 ? 'square alternate' : 'square';
         const jump = state.jumps[square];
-        node.textContent = square;
-        if (jump) node.setAttribute('aria-label', `Square ${square}, ${jump > square ? 'ladder' : 'snake'} to ${jump}`);
+        const number = document.createElement('span');
+        number.className = 'square-number';
+        number.textContent = square;
+        node.append(number);
+        if (jump) node.setAttribute('aria-label', `Square ${square}, ${jump > square ? adventure.up : adventure.down} to ${jump}`);
         board.append(node);
       }
-      board.insertAdjacentHTML('beforeend', paths(state.jumps));
+      board.insertAdjacentHTML('beforeend', paths(state.jumps, state.theme));
       state.positions.forEach((position, i) => {
         const piece = document.createElement('span');
         piece.id = 'piece-' + i;
@@ -654,6 +712,7 @@
     byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';
     byId('theme').value = newest.game === 'snakes' ? newest.theme : 'classic';
     byId('pairs-pace').value = newest.game === 'pairs' ? newest.pace : 'classic';
+    say('theme-preview', (adventures[byId('theme').value] || adventures.classic).guide);
     setupPage = game;
     history.pushState(null, '', `/${game}-setup`);
     showSetup();
@@ -691,6 +750,7 @@
     if (setupPage === 'pairs') request('switch', { game: 'pairs', pace: byId('pairs-pace').value });
     if (setupPage === 'snakes') request('switch', { game: 'snakes', pace: byId('pace').value, theme: byId('theme').value });
   };
+  byId('theme').onchange = () => say('theme-preview', adventures[byId('theme').value].guide);
   byId('cancel-setup').onclick = () => closeSetup();
   byId('customize').onclick = () => {
     const picker = byId('lobby-pieces');

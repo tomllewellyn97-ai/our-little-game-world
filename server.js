@@ -6,10 +6,42 @@ const { join } = require('node:path');
 const page = readFileSync(join(__dirname, 'game.html'));
 const rooms = new Map();
 const boards = {
-  quick: { size: 4, jumps: { 3: 9, 6: 12, 11: 4, 15: 8 } },
-  classic: { size: 5, jumps: { 3: 11, 6: 15, 10: 20, 17: 8, 22: 13, 24: 16 } },
-  long: { size: 7, jumps: { 4: 17, 9: 23, 19: 32, 28: 41, 38: 46, 15: 7, 26: 13, 35: 22, 44: 31, 48: 39 } }
+  quick: { size: 4 },
+  classic: { size: 5 },
+  long: { size: 7 },
+  adventure: { size: 10 }
 };
+const journeys = {
+  classic: ['Up a ladder!', 'Down a snake!'],
+  jungle: ['Climb the jungle vine!', 'Slide down a jungle snake!'],
+  space: ['Rocket boost!', 'A black hole pulls you back!'],
+  ocean: ['Ride the bubble stream!', 'A whirlpool sweeps you back!']
+};
+function shuffledJumps(size) {
+  const candidates = [];
+  const finish = size ** 2;
+  for (let low = 2; low < finish - size; low++) {
+    for (let high = low + size; high < Math.min(finish, low + size * 3 + 1); high++) {
+      candidates.push([low, high]);
+    }
+  }
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  const jumps = {};
+  const used = new Set();
+  const count = size === 10 ? 14 : size === 7 ? 10 : size === 5 ? 6 : 4;
+  for (const [low, high] of candidates) {
+    if (used.has(low) || used.has(high)) continue;
+    const up = Object.keys(jumps).length % 2 === 0;
+    jumps[up ? low : high] = up ? high : low;
+    used.add(low);
+    used.add(high);
+    if (Object.keys(jumps).length === count) break;
+  }
+  return jumps;
+}
 const games = ['snakes', 'pairs', 'connect', 'drawing'];
 const inkColours = ['#282344', '#d52e54', '#e36716', '#f2bf18', '#23865e', '#2664c4', '#833fc1', '#ffffff'];
 const themes = ['classic', 'jungle', 'space', 'ocean'];
@@ -22,6 +54,10 @@ function availablePiece(room, choice) {
 const expiry = 2 * 60 * 60 * 1000;
 
 function newBoard(room) {
+  const nextJumps = shuffledJumps(boards[room.pace].size);
+  const repeated = room.jumps && Object.keys(room.jumps).length === Object.keys(nextJumps).length &&
+    Object.entries(nextJumps).every(([from, to]) => room.jumps[from] === to);
+  room.jumps = repeated ? Object.fromEntries(Object.entries(nextJumps).map(([from, to]) => [to, Number(from)])) : nextJumps;
   room.strokes = [];
   room.drawingVersion = 0;
   room.turn = 0;
@@ -58,14 +94,16 @@ function move(room, player, cell) {
     throw new Error('Wait for your turn.');
   }
   if (room.game === 'snakes') {
-    const { size, jumps } = boards[room.pace];
+    const { size } = boards[room.pace];
+    const jumps = room.jumps;
     const finish = size ** 2;
     const start = room.positions[player];
     const die = randomInt(1, 7);
     const landing = Math.min(finish, start + die);
     const destination = jumps[landing] ?? landing;
     room.positions[player] = destination;
-    const jump = destination > landing ? ' Up a ladder!' : destination < landing ? ' Down a snake!' : '';
+    const journey = journeys[room.theme] || journeys.classic;
+    const jump = destination === landing ? '' : ' ' + journey[destination > landing ? 0 : 1];
     room.message = `${room.names[player]} rolled ${die}.${jump}`;
     room.roll = { id: randomBytes(8).toString('hex'), player, die, start, landing, destination };
     if (destination === finish) room.winner = player;
@@ -200,7 +238,8 @@ function handle(data) {
     if (player !== 0) throw new Error('Only the host can choose the game.');
     if (action === 'switch' && !games.includes(game)) throw new Error('Pick a game.');
     room.game = action === 'lobby' ? null : game;
-    room.pace = Object.hasOwn(boards, pace) ? pace : 'classic';
+    const lengths = room.game === 'pairs' ? pairCounts : boards;
+    room.pace = Object.hasOwn(lengths, pace) ? pace : 'classic';
     room.theme = themes.includes(theme) ? theme : 'classic';
     newBoard(room);
   }
@@ -217,7 +256,7 @@ function handle(data) {
     code: room.code, token: room.players[player], player, game: room.game,
     ready: Boolean(room.game) && room.players.length >= (room.game === 'connect' ? 2 : room.capacity),
     capacity: room.capacity, round: room.round, turn: room.turn, winner: room.winner,
-    positions: room.positions, ...boards[room.pace], pace: room.pace, message: room.message, grid: room.grid,
+    positions: room.positions, size: boards[room.pace].size, jumps: room.jumps, pace: room.pace, message: room.message, grid: room.grid,
     names: room.names, roll: room.roll, theme: room.theme, pieces: room.pieces, choices: pieces,
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
