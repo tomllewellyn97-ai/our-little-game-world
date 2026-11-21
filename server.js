@@ -42,7 +42,7 @@ function shuffledJumps(size) {
   }
   return jumps;
 }
-const games = ['snakes', 'pairs', 'connect', 'drawing'];
+const games = ['snakes', 'pairs', 'connect', 'drawing', 'frustration'];
 const inkColours = ['#282344', '#d52e54', '#e36716', '#f2bf18', '#23865e', '#2664c4', '#833fc1', '#ffffff'];
 const themes = ['classic', 'jungle', 'space', 'ocean'];
 const pairCounts = { quick: 4, classic: 6, long: 10 };
@@ -66,6 +66,8 @@ function newBoard(room) {
   room.positions = Array(room.capacity).fill(1);
   room.round = randomBytes(8).toString('hex');
   room.roll = null;
+  room.racers = Array.from({ length: room.capacity }, () => [-1, -1]);
+  room.raceDie = null;
   room.grid = Array(42).fill(null);
   room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢', '🦊', '🐙', '🦄', '🐼']
     .slice(0, pairCounts[room.pace]).flatMap(face => [face, face]);
@@ -92,6 +94,47 @@ function move(room, player, cell) {
   const seats = room.game === 'connect' ? 2 : room.capacity;
   if (!room.game || room.game === 'drawing' || room.players.length < seats || room.turn !== player || room.winner !== null || room.hideAt) {
     throw new Error('Wait for your turn.');
+  }
+  if (room.game === 'frustration') {
+    if (cell === undefined) {
+      if (room.raceDie !== null) throw new Error('Pick a piece to move first.');
+      const die = randomInt(1, 7);
+      room.roll = { id: randomBytes(8).toString('hex'), player, die };
+      room.raceDie = die;
+      room.message = `${room.names[player]} rolled ${die}. Pick a glowing piece.`;
+      if (!raceChoices(room, player).length) {
+        room.raceDie = null;
+        room.turn = (player + 1) % seats;
+        room.message = 'Your pieces are blocked. Next player’s turn!';
+      }
+      return;
+    }
+    if (room.raceDie === null || !raceChoices(room, player).includes(cell)) throw new Error('Pick one of your glowing pieces.');
+    const die = room.raceDie;
+    const destination = Math.min(24, Math.max(0, room.racers[player][cell]) + die);
+    room.racers[player][cell] = destination;
+    let bumped = false;
+    if (destination < 24) {
+      const spot = raceSpot(room, player, destination);
+      if (spot % (24 / seats) !== 0) {
+        room.racers.forEach((pieces, owner) => {
+          if (owner === player) return;
+          pieces.forEach((progress, index) => {
+            if (progress >= 0 && progress < 24 && raceSpot(room, owner, progress) === spot) {
+              pieces[index] = -1;
+              bumped = true;
+            }
+          });
+        });
+      }
+    }
+    room.raceDie = null;
+    if (room.racers[player].every(progress => progress === 24)) room.winner = player;
+    room.message = `${room.names[player]} moved piece ${cell + 1}.` +
+      (destination === 24 ? ' Home safe!' : '') + (bumped ? ' Bump! The other piece goes back to base.' : '') +
+      (die === 6 && room.winner === null ? ' A six means another turn!' : '');
+    if (die !== 6) room.turn = (player + 1) % seats;
+    return;
   }
   if (room.game === 'snakes') {
     const { size } = boards[room.pace];
@@ -152,6 +195,19 @@ function move(room, player, cell) {
     return;
   }
   room.turn = (player + 1) % seats;
+}
+
+function raceSpot(room, player, progress) {
+  return (player * (24 / room.capacity) + progress) % 24;
+}
+
+function raceChoices(room, player) {
+  if (room.raceDie === null) return [];
+  return room.racers[player].flatMap((progress, index, pieces) => {
+    const target = Math.min(24, Math.max(0, progress) + room.raceDie);
+    const blocked = target < 24 && pieces.some((other, i) => i !== index && other === target);
+    return progress === 24 || blocked ? [] : [index];
+  });
 }
 
 function reply(res, status, value) {
@@ -261,6 +317,8 @@ function handle(data) {
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
     matched: room.matched, cardOwners: room.cardOwners,
+    racers: room.racers, raceDie: room.raceDie,
+    raceChoices: room.game === 'frustration' && room.turn === player ? raceChoices(room, player) : [],
     drawingVersion: room.drawingVersion,
     strokes: room.game === 'drawing' && (action !== 'state' || round !== room.round ||
       data.drawingVersion !== room.drawingVersion) ? room.strokes : undefined

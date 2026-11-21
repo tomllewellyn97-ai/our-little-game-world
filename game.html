@@ -48,11 +48,20 @@
   #board.snake-board { gap: 0; border: 3px solid; border-radius: .8rem; overflow: hidden; }
   .snake-board .square { border-radius: 0; padding: .3rem; font-weight: bold; }
   .paths { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-   .paths > path:not([id]) { opacity: .38; stroke-width: .65; }
+  .paths > path:not([id]) { opacity: .38; stroke-width: .65; }
   .paths > g { opacity: .85; }
   .paths > g[stroke] { opacity: .4; stroke-width: .65; }
   .paths > circle { opacity: .45; }
-   .snake-board[data-theme="jungle"] .paths > g > path[fill="#348344"] { opacity: .25; transform: scale(.45); }
+  .snake-board[data-theme="jungle"] .paths > g > path[fill="#348344"] { opacity: .25; transform: scale(.45); }
+  #board.race-board { aspect-ratio: 1; max-width: 36rem; grid-template-rows: repeat(7, minmax(0,1fr)); gap: .2rem; border: 3px solid #514578; padding: .3rem; border-radius: 1.2rem; background: #eee5ff; }
+  .race-space { min-width: 0; border: 1px solid #82749e; border-radius: 50%; background: #fffdf7; position: relative; display: flex; align-items: center; justify-content: center; gap: 1px; }
+  .race-space > small { position: absolute; top: 0; font-size: .6rem; line-height: 1; }
+  .race-token { width: 42%; aspect-ratio: 1; border: 1px solid #282344; border-radius: 50%; display: grid; place-items: center; font-weight: bold; font-size: clamp(.65rem,3vw,1.1rem); color: #282344; background: var(--pair-colour); }
+  .race-middle { grid-area: 2 / 2 / 7 / 7; display: grid; align-content: center; gap: .8rem; padding: .35rem; }
+  .race-player { border: 2px solid #514578; border-radius: .8rem; background: var(--pair-colour); padding: .35rem; min-width: 0; overflow-wrap: anywhere; text-align: center; font-size: clamp(.65rem,2.7vw,1rem); }
+  .race-player strong { display: block; }
+  #race-controls { display: flex; justify-content: center; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+  #race-controls button { background: #c5edb5; border-color: #315740; box-shadow: 0 0 0 3px #e0f6d3; }
   .piece { position: absolute; z-index: 2; display: grid; place-items: center; width: 9%; aspect-ratio: 1; border: 2px solid #282344; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); transition: left .17s ease, top .17s ease; font-size: clamp(.8rem,4vw,1.5rem); }
   .piece.heart { background: #ffd0e1; }
   .piece.jump { transition-duration: .55s; }
@@ -79,7 +88,7 @@
   .piece-picker button { min-width: 44px; font-size: 1.2rem; }
   .piece-picker button[aria-pressed="true"] { background: #e5d9ff; outline: 2px solid #6240b1; }
   #setup { border: 2px solid #315740; border-radius: 1rem; padding: 1rem; background: #f8fff0; }
-    #setup .pace-picker { margin-inline: 0; width: min(100%, 18rem); }
+  #setup .pace-picker { margin-inline: 0; width: min(100%, 18rem); }
   .snake-board[data-theme="jungle"] { --square-a: #d9efac; --square-b: #ffe4a0; --snake: #177248; --ladder: #74421e; }
   .snake-board[data-theme="space"] { --square-a: #d9d4ff; --square-b: #aedcf5; --snake: #6538ac; --ladder: #364985; }
   .snake-board[data-theme="ocean"] { --square-a: #bceee9; --square-b: #c9e1ff; --snake: #086e83; --ladder: #87431e; }
@@ -141,6 +150,7 @@
         <button data-game="pairs">Set up Matching Pairs</button>
       </div>
       <div class="tile blue"><span aria-hidden="true">🔴 🟡</span><h2>Connect 4</h2><button data-game="connect">Start Connect 4</button></div>
+      <div class="tile gold"><span aria-hidden="true">🎲</span><h2>Frustration</h2><button data-game="frustration">Start Frustration</button></div>
       <div class="tile pink"><span aria-hidden="true">🎨</span><h2>Drawing Together</h2><button data-game="drawing">Start Drawing Together</button></div>
     </div>
     </div>
@@ -189,6 +199,7 @@
       <button id="roll" hidden>Roll the dice</button>
     </div>
     <div id="board"></div>
+    <div id="race-controls" role="group" aria-label="Choose a piece to move" hidden></div>
     <button id="restart" hidden>Play again</button>
     </div>
     </div>
@@ -197,7 +208,7 @@
 </main>
 <script>
   const byId = id => document.getElementById(id);
-  const names = { snakes: 'Snakes & Ladders', pairs: 'Matching Pairs', connect: 'Connect 4', drawing: 'Drawing Together' };
+  const names = { snakes: 'Snakes & Ladders', pairs: 'Matching Pairs', connect: 'Connect 4', drawing: 'Drawing Together', frustration: 'Frustration' };
   const canvas = byId('canvas');
   const paint = canvas.getContext('2d');
   const ink = {Black:'#282344', Pink:'#d52e54', Orange:'#e36716', Yellow:'#f2bf18', Green:'#23865e', Blue:'#2664c4', Purple:'#833fc1', Eraser:'#ffffff'};
@@ -292,7 +303,8 @@
   const rules = {
     snakes: 'Roll to move. Ladders take you up and snakes take you down.',
     pairs: 'Flip two cards. Find a pair and take another turn!',
-    connect: 'Drop a piece into a column. Get four in a row to win!'
+    connect: 'Drop a piece into a column. Get four in a row to win!',
+    frustration: 'Get both pieces home! Roll, then pick a glowing piece. Any roll gets you out of base. Bump another player back to base when you land on them. Coloured start spaces are safe. Roll a six for another turn. Any roll that reaches home gets you in!'
   };
   const icons = ['★', '♥', '◆'];
   const adventures = {
@@ -446,6 +458,11 @@
     cube.style.transform = landed;
     diceMotion?.cancel();
     say('dice-result', `${name} rolled ${roll.die}`);
+    if (newest.game === 'frustration') {
+      animation = null;
+      render(newest);
+      return;
+    }
     const piece = byId('piece-' + roll.player);
     for (let square = roll.start + 1; square <= roll.landing; square++) {
       place(piece, square, roll.player);
@@ -495,7 +512,7 @@
     playerCount = state.capacity;
     const playerNames = state.names || ['Player 1', 'Player 2'];
     const roll = state.roll;
-    const animate = game === 'snakes' && roll && roll.id !== lastRoll;
+    const animate = (game === 'snakes' || game === 'frustration') && roll && roll.id !== lastRoll;
     lastRoll = roll?.id ?? null;
     const active = ready && player === turn && winner === null && !paused;
     byId('lobby').hidden = true;
@@ -530,12 +547,14 @@
     const adventure = adventures[state.theme] || adventures.classic;
     say('rules', game === 'snakes' ? `${paceLabel[state.pace] || 'Classic'} · ${size ** 2} squares. ${adventure.guide} Reach ${size ** 2} to win!` : rules[game]);
     const turnText = active ? `Your turn, ${playerNames[player]}!` : `${playerNames[turn]}’s turn`;
-    const play = paused ? 'Remember those cards…' : turnText;
+    const choosing = game === 'frustration' && state.raceDie !== null && winner === null;
+    const play = paused ? 'Remember those cards…' : choosing ?
+      (active ? `${playerNames[player]}, pick a piece!` : `${playerNames[turn]} is picking a piece`) : turnText;
     const end = winner === 'draw' ? 'It’s a tie!' : winner === player ? 'You win!' : `${playerNames[winner]} wins!`;
     const status = !ready ? 'Waiting for players…' : winner === null ? play : end;
     say('status', status);
     byId('status').dataset.turn = active ? 'yours' : '';
-    say('detail', game === 'snakes' && !animate ? state.message : '');
+    say('detail', (game === 'snakes' || game === 'frustration') && !animate ? state.message : '');
     const scores = byId('pair-scores');
     scores.hidden = game !== 'pairs';
     if (game === 'pairs') {
@@ -551,19 +570,24 @@
         }));
       }
     }
-    byId('die-stage').hidden = game !== 'snakes';
-    byId('dice-result').hidden = game !== 'snakes';
+    const diceGame = game === 'snakes' || game === 'frustration';
+    byId('die-stage').hidden = !diceGame;
+    byId('dice-result').hidden = !diceGame;
     if (!roll) { cube.style.transform = rotation(0,0); say('dice-result', 'Ready to roll'); }
     byId('roll').disabled = !active;
-    byId('roll').hidden = game !== 'snakes' || !active;
+    byId('roll').hidden = !diceGame || !active || choosing;
+    byId('roll').textContent = game === 'frustration' ? 'Pop the dice!' : 'Roll the dice';
     byId('restart').hidden = player !== 0 || winner === null;
-    const key = JSON.stringify([game, size, state.theme, state.jumps, pieces, active, state.grid, state.cards, state.positions, state.matched, state.cardOwners, animate ? roll.id : null]);
+    const key = JSON.stringify([game, size, state.theme, state.jumps, pieces, active, state.grid, state.cards, state.positions, state.matched, state.cardOwners, state.racers, state.raceDie, animate ? roll.id : null]);
     if (key === lastBoard) return;
     lastBoard = key;
     const board = byId('board');
     const focusedCell = document.activeElement?.dataset.cell;
     board.replaceChildren();
     board.classList.toggle('snake-board', game === 'snakes');
+    board.classList.toggle('race-board', game === 'frustration');
+    byId('race-controls').hidden = game !== 'frustration';
+    byId('race-controls').replaceChildren();
     board.dataset.theme = state.theme;
     board.classList.toggle('large', size >= 7);
     board.style.setProperty('--board-size', size);
@@ -587,7 +611,57 @@
       board.append(node);
       return node;
     }
-    if (game === 'snakes') {
+    if (game === 'frustration') {
+      const track = [];
+      for (let x = 0; x < 7; x++) track.push([0,x]);
+      for (let y = 1; y < 7; y++) track.push([y,6]);
+      for (let x = 5; x >= 0; x--) track.push([6,x]);
+      for (let y = 5; y >= 1; y--) track.push([y,0]);
+      track.forEach(([y,x], spot) => {
+        const square = document.createElement('div');
+        square.className = 'race-space';
+        square.style.gridArea = `${y+1} / ${x+1}`;
+        const label = document.createElement('small');
+        label.textContent = spot + 1;
+        square.append(label);
+        const starter = spot / (24 / state.capacity);
+        if (Number.isInteger(starter)) {
+          square.classList.add('pair-player-' + starter);
+          square.style.background = 'var(--pair-colour)';
+          label.textContent = '★';
+        }
+        state.racers.forEach((racers, owner) => racers.forEach((progress, index) => {
+          if (progress < 0 || progress >= 24 || (owner * (24 / state.capacity) + progress) % 24 !== spot) return;
+          const token = document.createElement('span');
+          token.className = 'race-token pair-player-' + owner;
+          token.textContent = pieces[owner];
+          token.setAttribute('aria-label', `${playerNames[owner]}, piece ${index+1}, space ${spot+1}`);
+          square.append(token);
+        }));
+        board.append(square);
+      });
+      const middle = document.createElement('div');
+      middle.className = 'race-middle';
+      state.names.forEach((name, owner) => {
+        const panel = document.createElement('div');
+        panel.className = 'race-player pair-player-' + owner;
+        const title = document.createElement('strong');
+        title.textContent = pieces[owner] + ' ' + name;
+        const progress = state.racers[owner].map((spot, i) => `${i+1}: ${spot<0 ? 'Base' : spot===24 ? '🏠 Home' : spot+'/24'}`);
+        panel.append(title, document.createTextNode(progress.join(' · ')));
+        middle.append(panel);
+      });
+      board.append(middle);
+      if (active && choosing && !animate) {
+        state.raceChoices.forEach(index => {
+          const choose = document.createElement('button');
+          choose.textContent = `${pieces[player]} Move piece ${index+1}`;
+          choose.onclick = () => request('move', {cell:index});
+          byId('race-controls').append(choose);
+        });
+      }
+      if (animate) animateRoll(roll, playerNames[roll.player]);
+    } else if (game === 'snakes') {
       for (let i = 0; i < size ** 2; i++) {
         const row = size - 1 - Math.floor(i / size);
         const col = i % size;
@@ -711,7 +785,7 @@
   }
   document.querySelectorAll('[data-game]').forEach(node => {
     const game = node.dataset.game;
-    node.onclick = () => game === 'connect' || game === 'drawing' ? request('switch', { game }) : openSetup(game);
+    node.onclick = () => ['connect', 'drawing', 'frustration'].includes(game) ? request('switch', { game }) : openSetup(game);
   });
   function openSetup(game) {
     byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';
@@ -773,7 +847,7 @@
   byId('leave').onclick = () => request('exit');
   byId('choose').onclick = () => request('lobby');
   byId('roll').onclick = () => request('move');
-  byId('restart').onclick = () => newest.game === 'connect' ? request('restart') : openSetup(newest.game);
+  byId('restart').onclick = () => ['connect', 'frustration'].includes(newest.game) ? request('restart') : openSetup(newest.game);
   session = JSON.parse(sessionStorage.getItem('gameRoom') || 'null');
   if (session) request('state');
   setInterval(() => { if (session) request('state'); }, 700);
