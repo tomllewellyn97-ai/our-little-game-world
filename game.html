@@ -48,6 +48,10 @@
   #board.snake-board { gap: 0; border: 3px solid; border-radius: .8rem; overflow: hidden; }
   .snake-board .square { border-radius: 0; padding: .3rem; font-weight: bold; }
   .paths { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+   .paths > path:not([id]) { opacity: .38; stroke-width: .65; }
+  .paths > g { opacity: .85; }
+  .paths > g[stroke] { opacity: .4; stroke-width: .65; }
+  .paths > circle { opacity: .45; }
   .piece { position: absolute; z-index: 2; display: grid; place-items: center; width: 9%; aspect-ratio: 1; border: 2px solid #282344; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); transition: left .17s ease, top .17s ease; font-size: clamp(.8rem,4vw,1.5rem); }
   .piece.heart { background: #ffd0e1; }
   .piece.jump { transition-duration: .55s; }
