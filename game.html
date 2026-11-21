@@ -52,6 +52,7 @@
   .paths > g { opacity: .85; }
   .paths > g[stroke] { opacity: .4; stroke-width: .65; }
   .paths > circle { opacity: .45; }
+   .snake-board[data-theme="jungle"] .paths > g > path[fill="#348344"] { opacity: .25; transform: scale(.45); }
   .piece { position: absolute; z-index: 2; display: grid; place-items: center; width: 9%; aspect-ratio: 1; border: 2px solid #282344; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); transition: left .17s ease, top .17s ease; font-size: clamp(.8rem,4vw,1.5rem); }
   .piece.heart { background: #ffd0e1; }
   .piece.jump { transition-duration: .55s; }
