@@ -46,6 +46,16 @@ const games = ['snakes', 'pairs', 'connect', 'drawing', 'frustration'];
 const inkColours = ['#282344', '#d52e54', '#e36716', '#f2bf18', '#23865e', '#2664c4', '#833fc1', '#ffffff'];
 const themes = ['classic', 'jungle', 'space', 'ocean'];
 const pairCounts = { quick: 4, classic: 6, long: 10, big: 18, mega: 24 };
+const pictureThemes = ['royal', 'villains', 'friends', 'frozen'];
+const pictureCards = Object.fromEntries(pictureThemes.map(theme => {
+  const cards = JSON.parse(readFileSync(join(__dirname, 'cards-' + theme + '.json'), 'utf8'));
+  if (cards.length !== 24 || new Set(cards.map(card => card.name)).size !== 24 ||
+      cards.some(card => !['image/png', 'image/webp'].includes(card.mime) || !card.data)) {
+    throw new Error('Incomplete picture theme: ' + theme);
+  }
+  return [theme, cards.map(card => ({ name: card.name, mime: card.mime, bytes: Buffer.from(card.data, 'base64') }))];
+}));
+const characterDecks = Object.fromEntries(pictureThemes.map(theme => [theme, pictureCards[theme].map(card => card.name)]));
 const pieces = ['★', '♥', '◆', '🐱', '🐶', '🦊', '🐸', '🦄', '🚀', '🐢', '🐙', '🦋'];
 function availablePiece(room, choice) {
   const available = pieces.filter(piece => !room.pieces.includes(piece));
@@ -69,9 +79,9 @@ function newBoard(room) {
   room.racers = Array.from({ length: room.capacity }, () => [-1, -1]);
   room.raceDie = null;
   room.grid = Array(42).fill(null);
-  room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢', '🦊', '🐙', '🦄', '🐼',
-    '🐷', '🐰', '🦁', '🐨', '🐵', '🦉', '🐧', '🦀', '🐬', '🦒', '🦔', '🐌', '🐞', '🦆']
-    .slice(0, pairCounts[room.pace]).flatMap(face => [face, face]);
+  const faces = characterDecks[room.pairTheme] || ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢', '🦊', '🐙', '🦄', '🐼',
+    '🐷', '🐰', '🦁', '🐨', '🐵', '🦉', '🐧', '🦀', '🐬', '🦒', '🦔', '🐌', '🐞', '🦆'];
+  room.cards = faces.slice(0, pairCounts[room.pace]).flatMap(face => [face, face]);
   for (let i = room.cards.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
     [room.cards[i], room.cards[j]] = [room.cards[j], room.cards[i]];
@@ -217,7 +227,7 @@ function reply(res, status, value) {
 }
 
 function handle(data) {
-  const { action, code, token, game, cell, name, pace, capacity, round, theme, piece } = data;
+  const { action, code, token, game, cell, name, pace, capacity, round, theme, piece, pairTheme } = data;
   const nickname = typeof name === 'string' ? name.trim().slice(0, 20) : '';
   const now = Date.now();
   for (const [key, room] of rooms) if (now - room.touched > expiry) rooms.delete(key);
@@ -298,6 +308,7 @@ function handle(data) {
     const lengths = room.game === 'pairs' ? pairCounts : boards;
     room.pace = Object.hasOwn(lengths, pace) ? pace : 'classic';
     room.theme = themes.includes(theme) ? theme : 'classic';
+    room.pairTheme = Object.hasOwn(characterDecks, pairTheme) ? pairTheme : 'emoji';
     newBoard(room);
   }
   if (action === 'move' || action === 'restart') {
@@ -316,6 +327,8 @@ function handle(data) {
     positions: room.positions, size: boards[room.pace]?.size || 5, jumps: room.jumps, pace: room.pace, message: room.message, grid: room.grid,
     names: room.names, roll: room.roll, theme: room.theme, pieces: room.pieces, choices: pieces,
     scores: room.scores, paused: Boolean(room.hideAt),
+    pairTheme: room.pairTheme || 'emoji',
+    characterFaces: characterDecks[room.pairTheme],
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
     matched: room.matched, cardOwners: room.cardOwners,
     racers: room.racers, raceDie: room.raceDie,
@@ -327,6 +340,14 @@ function handle(data) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const picture = /^\/cards\/(royal|villains|friends|frozen)\/(\d{1,2})$/.exec(req.url.split('?')[0]);
+  if (req.method === 'GET' && picture) {
+    const card = pictureCards[picture[1]][Number(picture[2])];
+    if (!card) return reply(res, 404, { error: 'Picture not found.' });
+    res.writeHead(200, { 'Content-Type': card.mime, 'Content-Length': card.bytes.length,
+      'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+    return res.end(card.bytes);
+  }
   if (req.method === 'GET' && ['/', '/snakes-setup', '/pairs-setup'].includes(req.url)) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Referrer-Policy': 'no-referrer' });
     return res.end(page);

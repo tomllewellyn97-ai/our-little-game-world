@@ -39,6 +39,9 @@
   .disc.player0 { background: #ff9898; } .disc.player1 { background: #ffd65c; }
   .card { aspect-ratio: 1; font-size: clamp(1.3rem,5vw,2.6rem); background: #ffe190; padding: 0; }
   .card:disabled { color: inherit; }
+  .card.character-card { position: relative; overflow: hidden; }
+  .character-face { position: absolute; inset: .35rem; width: calc(100% - .7rem); height: calc(100% - .7rem); object-fit: contain; pointer-events: none; }
+  .picture-credits { font-size: .85rem; margin-top: .75rem; }
   .card.matched { background: #c5edb5; }
   .card.matched, .pair-score { background: var(--pair-colour, #c5edb5); }
   .pair-player-0 { --pair-colour: #bcdcff; }
@@ -192,6 +195,16 @@
         <div class="pace-picker"><select class="pace" id="pairs-pace">
           <option value="quick">Quick · 8 cards</option><option value="classic" selected>Classic · 12 cards</option><option value="long">Long · 20 cards</option><option value="big">Big · 36 cards</option><option value="mega">Mega · 48 cards</option>
         </select></div>
+        <label for="pairs-theme">Card theme</label>
+        <div class="pace-picker"><select class="pace" id="pairs-theme">
+          <option value="emoji">Animal emoji</option>
+          <option value="royal">Princesses &amp; Princes</option>
+          <option value="villains">Disney Villains</option>
+          <option value="friends">Mickey, Friends &amp; Animals</option>
+          <option value="frozen">Frozen</option>
+        </select></div>
+        <p>Choose a theme for everyone in your lobby. Bigger picture games include different poses, friends together and a few themed objects.</p>
+        <p class="picture-credits">Picture credits: <a href="https://pngimg.com" target="_blank" rel="noopener noreferrer">PNGimg</a> and <a href="https://pngpix.com" target="_blank" rel="noopener noreferrer">PNGpix</a>.</p>
       </div>
       <div id="snakes-options">
       <label for="pace">Board size</label>
@@ -526,7 +539,19 @@
     const node = byId(id);
     if (node.textContent !== text) node.textContent = text;
   }
+  const loadedPictureThemes = new Set();
+  function pictureUrl(theme, tile) { return '/cards/' + theme + '/' + tile + '?v=1'; }
+  function preloadPictures(theme) {
+    if (!['royal', 'villains', 'friends', 'frozen'].includes(theme) || loadedPictureThemes.has(theme)) return;
+    loadedPictureThemes.add(theme);
+    for (let tile = 0; tile < 24; tile++) {
+      const image = new Image();
+      image.src = pictureUrl(theme, tile);
+    }
+  }
+  byId('pairs-theme').addEventListener('change', event => preloadPictures(event.target.value));
   function render(state) {
+    if (state.game === 'pairs') preloadPictures(state.pairTheme);
     newest = state;
     if (state.round !== currentRound) {
       currentRound = state.round;
@@ -611,7 +636,7 @@
     byId('roll').hidden = game !== 'snakes' || !active || choosing;
     byId('roll').textContent = game === 'frustration' ? 'Pop the dice!' : 'Roll the dice';
     byId('restart').hidden = player !== 0 || winner === null;
-    const key = JSON.stringify([game, size, state.theme, state.jumps, pieces, active, state.grid, state.cards, state.positions, state.matched, state.cardOwners, state.racers, state.raceDie, animate ? roll.id : null]);
+    const key = JSON.stringify([game, size, state.theme, state.pairTheme, state.jumps, pieces, active, state.grid, state.cards, state.positions, state.matched, state.cardOwners, state.racers, state.raceDie, animate ? roll.id : null]);
     if (key === lastBoard) return;
     lastBoard = key;
     const board = byId('board');
@@ -773,6 +798,18 @@
         const matched = state.matched.includes(i);
         const owner = state.cardOwners?.[i];
         const node = button(face || '?', matched ? `card matched pair-player-${owner}` : 'card', i, !active || Boolean(face));
+        if (face && state.pairTheme !== 'emoji') {
+          const tile = state.characterFaces.indexOf(face);
+          node.textContent = '';
+          node.classList.add('character-card');
+          const portrait = document.createElement('img');
+          portrait.className = 'character-face';
+          portrait.alt = '';
+          portrait.draggable = false;
+          portrait.src = pictureUrl(state.pairTheme, tile);
+          node.append(portrait);
+          node.title = face;
+        }
         const attribution = owner === undefined ? '' : `, matched by ${playerNames[owner]}`;
         node.setAttribute('aria-label', face ? `Card ${i + 1}: ${face}${attribution}` : `Flip card ${i + 1}`);
       });
@@ -872,6 +909,8 @@
     byId('pace').value = newest.game === 'snakes' ? newest.pace : 'classic';
     byId('theme').value = newest.game === 'snakes' ? newest.theme : 'classic';
     byId('pairs-pace').value = newest.game === 'pairs' ? newest.pace : 'classic';
+    byId('pairs-theme').value = newest.game === 'pairs' ? newest.pairTheme : 'emoji';
+    preloadPictures(byId('pairs-theme').value);
     say('theme-preview', (adventures[byId('theme').value] || adventures.classic).guide);
     setupPage = game;
     history.pushState(null, '', `/${game}-setup`);
@@ -907,7 +946,7 @@
   });
   byId('setup').onsubmit = event => {
     event.preventDefault();
-    if (setupPage === 'pairs') request('switch', { game: 'pairs', pace: byId('pairs-pace').value });
+    if (setupPage === 'pairs') request('switch', { game: 'pairs', pace: byId('pairs-pace').value, pairTheme: byId('pairs-theme').value });
     if (setupPage === 'snakes') request('switch', { game: 'snakes', pace: byId('pace').value, theme: byId('theme').value });
   };
   byId('theme').onchange = () => say('theme-preview', adventures[byId('theme').value].guide);
