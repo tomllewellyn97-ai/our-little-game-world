@@ -45,7 +45,7 @@ function shuffledJumps(size) {
 const games = ['snakes', 'pairs', 'connect', 'drawing', 'frustration'];
 const inkColours = ['#282344', '#d52e54', '#e36716', '#f2bf18', '#23865e', '#2664c4', '#833fc1', '#ffffff'];
 const themes = ['classic', 'jungle', 'space', 'ocean'];
-const pairCounts = { quick: 4, classic: 6, long: 10, big: 16, mega: 24 };
+const pairCounts = { quick: 4, classic: 6, long: 10, big: 18, mega: 24 };
 const pieces = ['★', '♥', '◆', '🐱', '🐶', '🦊', '🐸', '🦄', '🚀', '🐢', '🐙', '🦋'];
 function availablePiece(room, choice) {
   const available = pieces.filter(piece => !room.pieces.includes(piece));
@@ -351,4 +351,5 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) server.listen(process.env.PORT || 3000, '0.0.0.0');
 module.exports = server;
+
 
