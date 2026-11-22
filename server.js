@@ -45,7 +45,7 @@ function shuffledJumps(size) {
 const games = ['snakes', 'pairs', 'connect', 'drawing', 'frustration'];
 const inkColours = ['#282344', '#d52e54', '#e36716', '#f2bf18', '#23865e', '#2664c4', '#833fc1', '#ffffff'];
 const themes = ['classic', 'jungle', 'space', 'ocean'];
-const pairCounts = { quick: 4, classic: 6, long: 10 };
+const pairCounts = { quick: 4, classic: 6, long: 10, big: 16, mega: 24 };
 const pieces = ['★', '♥', '◆', '🐱', '🐶', '🦊', '🐸', '🦄', '🚀', '🐢', '🐙', '🦋'];
 function availablePiece(room, choice) {
   const available = pieces.filter(piece => !room.pieces.includes(piece));
@@ -54,7 +54,7 @@ function availablePiece(room, choice) {
 const expiry = 2 * 60 * 60 * 1000;
 
 function newBoard(room) {
-  const nextJumps = shuffledJumps(boards[room.pace].size);
+  const nextJumps = shuffledJumps(boards[room.pace]?.size || 5);
   const repeated = room.jumps && Object.keys(room.jumps).length === Object.keys(nextJumps).length &&
     Object.entries(nextJumps).every(([from, to]) => room.jumps[from] === to);
   room.jumps = repeated ? Object.fromEntries(Object.entries(nextJumps).map(([from, to]) => [to, Number(from)])) : nextJumps;
@@ -69,7 +69,8 @@ function newBoard(room) {
   room.racers = Array.from({ length: room.capacity }, () => [-1, -1]);
   room.raceDie = null;
   room.grid = Array(42).fill(null);
-  room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢', '🦊', '🐙', '🦄', '🐼']
+  room.cards = ['🐱', '🐶', '🐸', '🐝', '🦋', '🐢', '🦊', '🐙', '🦄', '🐼',
+    '🐷', '🐰', '🦁', '🐨', '🐵', '🦉', '🐧', '🦀', '🐬', '🦒', '🦔', '🐌', '🐞', '🦆']
     .slice(0, pairCounts[room.pace]).flatMap(face => [face, face]);
   for (let i = room.cards.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
@@ -312,7 +313,7 @@ function handle(data) {
     code: room.code, token: room.players[player], player, game: room.game,
     ready: Boolean(room.game) && room.players.length >= (room.game === 'connect' ? 2 : room.capacity),
     capacity: room.capacity, round: room.round, turn: room.turn, winner: room.winner,
-    positions: room.positions, size: boards[room.pace].size, jumps: room.jumps, pace: room.pace, message: room.message, grid: room.grid,
+    positions: room.positions, size: boards[room.pace]?.size || 5, jumps: room.jumps, pace: room.pace, message: room.message, grid: room.grid,
     names: room.names, roll: room.roll, theme: room.theme, pieces: room.pieces, choices: pieces,
     scores: room.scores, paused: Boolean(room.hideAt),
     cards: room.cards.map((face, i) => room.open.includes(i) || room.matched.includes(i) ? face : null),
