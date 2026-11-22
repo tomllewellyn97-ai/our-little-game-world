@@ -540,7 +540,7 @@
     if (node.textContent !== text) node.textContent = text;
   }
   const loadedPictureThemes = new Set();
-  function pictureUrl(theme, tile) { return '/cards/' + theme + '/' + tile + '?v=1'; }
+  function pictureUrl(theme, tile) { return '/cards/' + theme + '/' + tile + '?v=2'; }
   function preloadPictures(theme) {
     if (!['royal', 'villains', 'friends', 'frozen'].includes(theme) || loadedPictureThemes.has(theme)) return;
     loadedPictureThemes.add(theme);
